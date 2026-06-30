@@ -406,6 +406,15 @@ async function adminView(status = "") {
           </div>
         </section>
         <section class="panel mini">
+          <h3>Clear uploaded inventory</h3>
+          <p>ล้างข้อมูล inventory ที่ upload แล้วเฉพาะเจ้า โดยไม่เปลี่ยน password</p>
+          <div class="actions vertical">
+            <button class="button warning full" data-clear-role="synnex" type="button">Clear Synnex inventory</button>
+            <button class="button warning full" data-clear-role="vst" type="button">Clear VST inventory</button>
+            <button class="button warning full" data-clear-role="ais" type="button">Clear AIS inventory</button>
+          </div>
+        </section>
+        <section class="panel mini">
           <h3>Change password</h3>
           <p>เปลี่ยนรหัสผ่านเฉพาะหน้า Admin</p>
           <form id="passwordForm">
@@ -426,6 +435,7 @@ async function adminView(status = "") {
 
   bindCommon();
   bindAdminPasswordReset();
+  bindAdminInventoryClear();
   document.querySelector("#refreshBtn").addEventListener("click", () => adminView());
   document.querySelector("#searchBox").addEventListener("input", (event) => {
     document.querySelector("#adminBody").innerHTML = adminRows(lastAdminData.parts, event.target.value);
@@ -443,6 +453,25 @@ function bindAdminPasswordReset() {
           body: JSON.stringify({ targetRole })
         });
         adminView(`<div class="status success">Reset password ของ ${escapeHtml(vendorLabel[targetRole])} เป็น 123 แล้ว</div>`);
+      } catch (error) {
+        adminView(`<div class="status error">${escapeHtml(error.message)}</div>`);
+      }
+    });
+  });
+}
+
+function bindAdminInventoryClear() {
+  document.querySelectorAll("[data-clear-role]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const targetRole = button.dataset.clearRole;
+      const label = vendorLabel[targetRole];
+      if (!confirm(`Clear uploaded inventory ของ ${label}?`)) return;
+      try {
+        await api("/api/admin/clear-upload", {
+          method: "POST",
+          body: JSON.stringify({ targetRole })
+        });
+        adminView(`<div class="status success">ล้าง inventory ของ ${escapeHtml(label)} แล้ว</div>`);
       } catch (error) {
         adminView(`<div class="status error">${escapeHtml(error.message)}</div>`);
       }
