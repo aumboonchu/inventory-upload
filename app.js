@@ -7,6 +7,8 @@ const app = document.querySelector("#app");
 let token = localStorage.getItem(`inventory_token_${role}`) || "";
 let parsedRows = [];
 let lastAdminData = null;
+let masterParts = null;
+let masterPartsPromise = null;
 
 function html(strings, ...values) {
   return strings.reduce((out, string, index) => out + string + (values[index] ?? ""), "");
@@ -163,6 +165,39 @@ function normalizeHeader(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9ก-๙]/g, "");
 }
 
+function normalizePartNo(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+async function loadMasterParts() {
+  if (masterParts) return masterParts;
+  if (!masterPartsPromise) {
+    masterPartsPromise = fetch("partApple.json", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : { parts: {} }))
+      .then((data) => {
+        masterParts = data.parts || {};
+        return masterParts;
+      })
+      .catch(() => {
+        masterParts = {};
+        return masterParts;
+      });
+  }
+  return masterPartsPromise;
+}
+
+function applyMasterParts(rows) {
+  let matched = 0;
+  const mappedRows = rows.map((row) => {
+    const master = masterParts?.[normalizePartNo(row.partNo)];
+    const masterDescription = master?.productName || master?.model || "";
+    if (!masterDescription) return row;
+    matched++;
+    return { ...row, description: masterDescription, masterMatched: true };
+  });
+  return { rows: mappedRows, matched };
+}
+
 function mapRows(rawRows) {
   if (!rawRows.length) return [];
   const header = rawRows[0].map(normalizeHeader);
@@ -181,7 +216,7 @@ function mapRows(rawRows) {
 
   return dataRows
     .map((row) => ({
-      partNo: row[partIndex] || "",
+      partNo: normalizePartNo(row[partIndex] || ""),
       description: row[descriptionIndex] || "",
       qty: row[qtyIndex] || "",
       price: row[priceIndex] || ""
@@ -284,14 +319,18 @@ function uploadView(status = "") {
     const file = event.target.files[0];
     if (!file) return;
     const text = await readUploadText(file);
-    parsedRows = mapRows(parseDelimited(text));
-    uploadView(`<div class="status success">อ่านไฟล์ ${escapeHtml(file.name)} ได้ ${parsedRows.length} rows</div>`);
+    await loadMasterParts();
+    const result = applyMasterParts(mapRows(parseDelimited(text)));
+    parsedRows = result.rows;
+    uploadView(`<div class="status success">อ่านไฟล์ ${escapeHtml(file.name)} ได้ ${parsedRows.length} rows ใช้ชื่อจาก partApple ${result.matched} rows</div>`);
   });
 
-  document.querySelector("#parsePasteBtn").addEventListener("click", () => {
+  document.querySelector("#parsePasteBtn").addEventListener("click", async () => {
     const text = document.querySelector("#pasteBox").value;
-    parsedRows = mapRows(parseDelimited(text));
-    uploadView(`<div class="status success">อ่านข้อมูล pasted ได้ ${parsedRows.length} rows</div>`);
+    await loadMasterParts();
+    const result = applyMasterParts(mapRows(parseDelimited(text)));
+    parsedRows = result.rows;
+    uploadView(`<div class="status success">อ่านข้อมูล pasted ได้ ${parsedRows.length} rows ใช้ชื่อจาก partApple ${result.matched} rows</div>`);
   });
 
   document.querySelector("#uploadBtn").addEventListener("click", async () => {
