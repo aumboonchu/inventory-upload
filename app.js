@@ -1,4 +1,4 @@
-const apiBaseUrl = window.APP_CONFIG?.apiBaseUrl || "http://localhost:8787";
+﻿const apiBaseUrl = window.APP_CONFIG?.apiBaseUrl || "http://localhost:8787";
 const page = document.body.dataset.page;
 const role = document.body.dataset.vendor;
 const vendorLabel = { synnex: "Synnex", vst: "VST", ais: "AIS", admin: "Admin" };
@@ -71,9 +71,12 @@ function loginView(message = "") {
   app.innerHTML = html`
     <div class="login-wrap">
       <section class="panel login-panel">
-        <div class="panel-header">
+        <div class="login-brand">
+          <div class="brand-mark">JIB</div>
+        </div>
+        <div class="panel-header compact">
           <div>
-            <h1>${escapeHtml(vendorLabel[role])}</h1>
+            <h1>${escapeHtml(vendorLabel[role])} Login</h1>
             <p>กรอกรหัสผ่านเพื่อเข้าใช้งาน</p>
           </div>
         </div>
@@ -105,7 +108,6 @@ function loginView(message = "") {
     }
   });
 }
-
 function parseDelimited(text) {
   const rows = [];
   let cell = "";
@@ -165,12 +167,12 @@ function scoreDecodedText(text) {
   const replacementPenalty = (text.match(/\uFFFD/g) || []).length * 100;
   const nullPenalty = (text.match(/\u0000/g) || []).length * 50;
   const delimiterBonus = (text.match(/[,\t\r\n]/g) || []).length;
-  const printableBonus = (text.match(/[A-Za-z0-9ก-๙]/g) || []).length;
+  const printableBonus = (text.match(/[A-Za-z0-9\u0E00-\u0E7F]/g) || []).length;
   return delimiterBonus + printableBonus - replacementPenalty - nullPenalty;
 }
 
 function normalizeHeader(value) {
-  return String(value || "").toLowerCase().replace(/[^a-z0-9ก-๙]/g, "");
+  return String(value || "").toLowerCase().replace(/[^a-z0-9\u0E00-\u0E7F]/g, "");
 }
 
 function normalizePartNo(value) {
@@ -233,9 +235,9 @@ function mapRows(rawRows) {
 }
 
 function rowsPreview(rows) {
-  if (!rows.length) return `<div class="status">ยังไม่มีข้อมูล preview</div>`;
+  if (!rows.length) return `<div class="empty-preview">ยังไม่มีข้อมูล preview</div>`;
   return html`
-    <div class="table-wrap">
+    <div class="table-wrap preview-table">
       <table>
         <thead>
           <tr>
@@ -257,48 +259,58 @@ function rowsPreview(rows) {
         </tbody>
       </table>
     </div>
-    ${rows.length > 80 ? `<div class="hint">แสดง preview 80 รายการแรกจากทั้งหมด ${rows.length} รายการ</div>` : ""}
+    ${rows.length > 80 ? `<div class="hint table-note">แสดง preview 80 รายการแรกจากทั้งหมด ${rows.length} รายการ</div>` : ""}
   `;
 }
 
 function uploadView(status = "") {
   app.innerHTML = shell(html`
+    <section class="page-hero">
+      <div>
+        <p class="eyebrow">Supplier workspace</p>
+        <h1>${escapeHtml(vendorLabel[role])} Upload</h1>
+        <p>วางข้อมูลจาก Excel หรืออัปโหลด CSV แล้วตรวจ preview ก่อนส่งเข้า Admin</p>
+      </div>
+      <button class="button secondary" id="logoutBtn" type="button">Logout</button>
+    </section>
+
     <div class="layout upload-layout">
-      <section class="panel">
-        <div class="panel-header">
+      <section class="panel upload-panel">
+        <div class="panel-header compact">
           <div>
-            <h1>${escapeHtml(vendorLabel[role])} Upload</h1>
-            <p>รองรับ CSV หรือ copy ตารางจาก Excel แล้ว paste ลงช่องข้อมูล</p>
+            <h2>Upload source</h2>
+            <p>Columns: Part No., Description, Qty, Price (ex VAT)</p>
           </div>
-          <button class="button secondary" id="logoutBtn" type="button">Logout</button>
         </div>
         <div class="panel-body">
-          <div class="dropzone">
-            <strong>Upload CSV</strong>
-            <span class="hint">คอลัมน์ที่แนะนำ: Part No., Description, Qty, Price (ex VAT)</span>
-            <div class="template-box">
+          <div class="dropzone redesign-dropzone">
+            <div class="upload-source-row">
               <div>
-                <strong>Template</strong>
-                <span class="hint">ใช้ไฟล์นี้เป็นรูปแบบมาตรฐานก่อน upload</span>
+                <strong>CSV file</strong>
+                <span class="hint">เลือกไฟล์ CSV หรือใช้ template ล่าสุดก่อน upload</span>
               </div>
               <a class="button secondary" href="template-${role}.csv" download>Download template</a>
             </div>
-            <input class="input" id="csvFile" type="file" accept=".csv,text/csv">
-            <textarea id="pasteBox" placeholder="หรือ paste ข้อมูลจาก Excel/CSV ที่นี่"></textarea>
-            <div class="actions">
+            <input class="input file-input" id="csvFile" type="file" accept=".csv,text/csv">
+            <textarea id="pasteBox" placeholder="Paste data from Excel / CSV here"></textarea>
+            <div class="actions upload-actions">
               <button class="button secondary" id="parsePasteBtn" type="button">Preview pasted data</button>
               <button class="button primary" id="uploadBtn" type="button" ${parsedRows.length ? "" : "disabled"}>Upload to ${escapeHtml(vendorLabel[role])}</button>
             </div>
           </div>
           ${status}
-          <div class="toolbar" style="margin: 20px 0 12px;">
-            <h2 style="margin:0;font-size:18px;">Preview</h2>
-            <span class="hint">${parsedRows.length} rows ready</span>
-          </div>
-          ${rowsPreview(parsedRows)}
         </div>
       </section>
-      <aside class="side-stack">
+
+      <aside class="side-stack guide-stack">
+        <section class="panel mini guide-panel">
+          <h3>Before upload</h3>
+          <div class="step-list">
+            <div><span>1</span><p>ใช้ template ล่าสุด</p></div>
+            <div><span>2</span><p>ตรวจ preview ให้ Part No. และ Price ตรง</p></div>
+            <div><span>3</span><p>Upload ใหม่จะแทนข้อมูลเดิมของ supplier นี้</p></div>
+          </div>
+        </section>
         <section class="panel mini">
           <h3>Change password</h3>
           <p>เปลี่ยนรหัสผ่านเฉพาะหน้า ${escapeHtml(vendorLabel[role])}</p>
@@ -314,12 +326,19 @@ function uploadView(status = "") {
             <button class="button warning full" type="submit">Change password</button>
           </form>
         </section>
-        <section class="panel mini">
-          <h3>Data rule</h3>
-          <p>การ upload ครั้งใหม่ของ vendor เดิมจะแทนที่ข้อมูลชุดก่อนหน้า เพื่อให้หน้า admin เห็นข้อมูลล่าสุดของ Synnex, VST และ AIS</p>
-        </section>
       </aside>
     </div>
+
+    <section class="panel preview-panel">
+      <div class="panel-header compact inline-header">
+        <div>
+          <h2>Preview</h2>
+          <p>ตรวจข้อมูลก่อน upload เข้า Admin</p>
+        </div>
+        <span class="hint">${parsedRows.length} rows ready</span>
+      </div>
+      <div class="panel-body">${rowsPreview(parsedRows)}</div>
+    </section>
   `, role);
 
   bindCommon();
@@ -353,7 +372,6 @@ function uploadView(status = "") {
     }
   });
 }
-
 function vendorCell(data) {
   if (!data) return `<span class="empty">-</span>`;
   return html`
@@ -384,7 +402,7 @@ function latestUploadsView(uploads) {
     <section class="latest-strip">
       <div class="section-title">
         <h2>Latest uploads</h2>
-        <span class="hint">อัปเดตล่าสุดของแต่ละเจ้า</span>
+        <span class="hint">รูปแบบวันเวลา dd-mm-yyyy (time)</span>
       </div>
       <div class="latest-grid">
         ${uploads.length ? uploads.map((upload) => html`
@@ -399,7 +417,6 @@ function latestUploadsView(uploads) {
     </section>
   `;
 }
-
 async function loadAdmin() {
   lastAdminData = await api("/api/admin/parts");
   return lastAdminData;
@@ -415,33 +432,59 @@ async function adminView(status = "") {
     data = { parts: [], uploads: [] };
   }
 
+  const countFor = (vendor) => data.uploads.find((item) => item.vendor === vendor)?.count || 0;
+
   app.innerHTML = shell(html`
-    <section class="panel admin-panel">
-      <div class="panel-header">
-        <div>
-          <h1>Combined parts</h1>
-          <p>รวม Part No. เดียวกัน และแสดงแยกคอลัมน์ Synnex / VST / AIS</p>
-        </div>
-        <div class="actions">
-          <button class="button secondary" id="refreshBtn" type="button">Refresh</button>
-          <button class="button secondary" id="exportBtn" type="button">Export CSV</button>
-          <button class="button secondary" id="logoutBtn" type="button">Logout</button>
-        </div>
+    <section class="page-hero admin-hero">
+      <div>
+        <h1>Combined Inventory</h1>
+        <p>อัพเดตล่าสุดจากทุก supplier ให้เห็นสถานะ จำนวนสินค้า และพร้อมตัดสินใจ</p>
       </div>
-      <div class="panel-body">
+      <div class="actions hero-actions">
+        <button class="button secondary" id="exportBtn" type="button">Export CSV</button>
+        <button class="button primary" id="refreshBtn" type="button">Refresh</button>
+      </div>
+    </section>
+
+    <section class="admin-overview">
+      <div class="overview-latest">
         ${latestUploadsView(data.uploads)}
-        <div class="stats">
-          <div class="stat"><b>${data.parts.length}</b><span>Total parts</span></div>
-          <div class="stat"><b>${data.uploads.find((item) => item.vendor === "synnex")?.count || 0}</b><span>Synnex rows</span></div>
-          <div class="stat"><b>${data.uploads.find((item) => item.vendor === "vst")?.count || 0}</b><span>VST rows</span></div>
-          <div class="stat"><b>${data.uploads.find((item) => item.vendor === "ais")?.count || 0}</b><span>AIS rows</span></div>
-        </div>
-        <div class="toolbar" style="margin-bottom:14px;">
-          <input class="input" id="searchBox" placeholder="Search Part No. / Description" style="max-width:360px;">
-          <span class="hint">Updated: ${escapeHtml(formatDateTime(data.updatedAt))}</span>
+      </div>
+      <div class="stats admin-stats">
+        <div class="stat"><span>Total parts</span><b>${data.parts.length}</b></div>
+        <div class="stat"><span>Synnex rows</span><b>${countFor("synnex")}</b></div>
+        <div class="stat"><span>VST rows</span><b>${countFor("vst")}</b></div>
+        <div class="stat"><span>AIS rows</span><b>${countFor("ais")}</b></div>
+      </div>
+    </section>
+
+    <section class="panel admin-panel">
+      <div class="panel-body">
+        <div class="toolbar admin-toolbar">
+          <input class="input search-input" id="searchBox" placeholder="Search Part No. / Description">
+          <div class="table-actions">
+            <span class="hint">Updated: ${escapeHtml(formatDateTime(data.updatedAt))}</span>
+            <details class="tool-menu">
+              <summary class="button secondary">Reset</summary>
+              <div class="tool-menu-list">
+                <button class="menu-action" data-reset-role="synnex" type="button">Reset Synnex</button>
+                <button class="menu-action" data-reset-role="vst" type="button">Reset VST</button>
+                <button class="menu-action" data-reset-role="ais" type="button">Reset AIS</button>
+              </div>
+            </details>
+            <details class="tool-menu">
+              <summary class="button primary">Clear</summary>
+              <div class="tool-menu-list">
+                <button class="menu-action danger" data-clear-role="synnex" type="button">Clear Synnex</button>
+                <button class="menu-action danger" data-clear-role="vst" type="button">Clear VST</button>
+                <button class="menu-action danger" data-clear-role="ais" type="button">Clear AIS</button>
+              </div>
+            </details>
+            <button class="button secondary" id="logoutBtn" type="button">Logout</button>
+          </div>
         </div>
         ${status}
-        <div class="table-wrap">
+        <div class="table-wrap admin-table">
           <table>
             <thead>
               <tr>
@@ -457,26 +500,13 @@ async function adminView(status = "") {
         </div>
       </div>
     </section>
-    <div class="admin-tools">
+
+    <section class="admin-tools">
+      <div class="section-title tools-title">
+        <h2>Password</h2>
+        <span class="hint">เปลี่ยนรหัสผ่านเฉพาะหน้า Admin</span>
+      </div>
       <aside class="side-stack">
-        <section class="panel mini">
-          <h3>Reset user password</h3>
-          <p>ตั้งรหัสผ่านของ Synnex, VST หรือ AIS กลับเป็น 123</p>
-          <div class="actions vertical">
-            <button class="button secondary full" data-reset-role="synnex" type="button">Reset Synnex to 123</button>
-            <button class="button secondary full" data-reset-role="vst" type="button">Reset VST to 123</button>
-            <button class="button secondary full" data-reset-role="ais" type="button">Reset AIS to 123</button>
-          </div>
-        </section>
-        <section class="panel mini">
-          <h3>Clear uploaded inventory</h3>
-          <p>ล้างข้อมูล inventory ที่ upload แล้วเฉพาะเจ้า โดยไม่เปลี่ยน password</p>
-          <div class="actions vertical">
-            <button class="button warning full" data-clear-role="synnex" type="button">Clear Synnex inventory</button>
-            <button class="button warning full" data-clear-role="vst" type="button">Clear VST inventory</button>
-            <button class="button warning full" data-clear-role="ais" type="button">Clear AIS inventory</button>
-          </div>
-        </section>
         <section class="panel mini">
           <h3>Change password</h3>
           <p>เปลี่ยนรหัสผ่านเฉพาะหน้า Admin</p>
@@ -493,7 +523,7 @@ async function adminView(status = "") {
           </form>
         </section>
       </aside>
-    </div>
+    </section>
   `, "admin");
 
   bindCommon();
@@ -505,7 +535,6 @@ async function adminView(status = "") {
   });
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
 }
-
 function bindAdminPasswordReset() {
   document.querySelectorAll("[data-reset-role]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -634,3 +663,8 @@ function render() {
 }
 
 render();
+
+
+
+
+
