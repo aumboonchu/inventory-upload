@@ -9,6 +9,7 @@ let parsedRows = [];
 let lastAdminData = null;
 let masterParts = null;
 let masterPartsPromise = null;
+let partModalEventsBound = false;
 
 function html(strings, ...values) {
   return strings.reduce((out, string, index) => out + string + (values[index] ?? ""), "");
@@ -382,13 +383,102 @@ function vendorCell(data) {
   `;
 }
 
+function partDetailSupplierCard(label, data) {
+  return html`
+    <article class="part-supplier-card">
+      <h4>${escapeHtml(label)}</h4>
+      <div class="part-supplier-values">
+        <div>
+          <span>Qty</span>
+          <strong class="${data ? "" : "empty"}">${escapeHtml(data?.qty || "-")}</strong>
+        </div>
+        <div>
+          <span>Price (ex VAT)</span>
+          <strong class="${data ? "" : "empty"}">${escapeHtml(data?.price || "-")}</strong>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function partDetailModal(part) {
+  return html`
+    <div class="modal-backdrop" data-modal-close>
+      <section class="part-modal" role="dialog" aria-modal="true" aria-labelledby="partModalTitle">
+        <button class="modal-close" data-modal-close type="button" aria-label="Close part detail">×</button>
+        <div class="part-modal-head">
+          <h2 id="partModalTitle">${escapeHtml(part.partNo)}</h2>
+          <p>${escapeHtml(part.description || "-")}</p>
+        </div>
+
+        <div class="part-detail-grid">
+          <div>
+            <span>Part No.</span>
+            <strong>${escapeHtml(part.partNo)}</strong>
+          </div>
+          <div>
+            <span>Description</span>
+            <strong>${escapeHtml(part.description || "-")}</strong>
+          </div>
+        </div>
+
+        <div class="part-supplier-section">
+          <h3>Supplier inventory</h3>
+          <div class="part-supplier-grid">
+            ${partDetailSupplierCard("Synnex", part.synnex)}
+            ${partDetailSupplierCard("VST", part.vst)}
+            ${partDetailSupplierCard("AIS", part.ais)}
+          </div>
+        </div>
+
+        <p class="part-modal-note">ข้อมูลแสดงจาก record ที่ upload ล่าสุดของแต่ละ supplier</p>
+      </section>
+    </div>
+  `;
+}
+
+function showPartDetail(partNo) {
+  const part = lastAdminData?.parts?.find((item) => item.partNo === partNo);
+  if (!part) return;
+  document.querySelector(".modal-backdrop")?.remove();
+  document.body.insertAdjacentHTML("beforeend", partDetailModal(part));
+  document.body.classList.add("modal-open");
+  document.querySelector(".modal-close")?.focus();
+}
+
+function closePartDetail() {
+  document.querySelector(".modal-backdrop")?.remove();
+  document.body.classList.remove("modal-open");
+}
+
+function bindPartDetailLinks() {
+  document.querySelectorAll("[data-part-no]").forEach((button) => {
+    button.addEventListener("click", () => showPartDetail(button.dataset.partNo));
+  });
+}
+
+function bindPartDetailModalEvents() {
+  if (partModalEventsBound) return;
+  partModalEventsBound = true;
+  document.addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.matches("[data-modal-close]")) closePartDetail();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closePartDetail();
+  });
+}
+
 function adminRows(parts, query = "") {
   const q = query.trim().toUpperCase();
   return parts
     .filter((part) => !q || part.partNo.includes(q) || (part.description || "").toUpperCase().includes(q))
     .map((part) => html`
       <tr>
-        <td><strong>${escapeHtml(part.partNo)}</strong></td>
+        <td>
+          <button class="part-link" data-part-no="${escapeHtml(part.partNo)}" type="button">
+            ${escapeHtml(part.partNo)}
+          </button>
+        </td>
         <td>${escapeHtml(part.description || "")}</td>
         <td>${vendorCell(part.synnex)}</td>
         <td>${vendorCell(part.vst)}</td>
@@ -532,8 +622,11 @@ async function adminView(status = "") {
   document.querySelector("#refreshBtn").addEventListener("click", () => adminView());
   document.querySelector("#searchBox").addEventListener("input", (event) => {
     document.querySelector("#adminBody").innerHTML = adminRows(lastAdminData.parts, event.target.value);
+    bindPartDetailLinks();
   });
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
+  bindPartDetailLinks();
+  bindPartDetailModalEvents();
 }
 function bindAdminPasswordReset() {
   document.querySelectorAll("[data-reset-role]").forEach((button) => {
