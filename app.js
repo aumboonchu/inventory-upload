@@ -22,6 +22,14 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function formatDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()} (${pad(date.getHours())}:${pad(date.getMinutes())})`;
+}
+
 async function api(path, options = {}) {
   const res = await fetch(`${apiBaseUrl}${path}`, {
     ...options,
@@ -255,7 +263,7 @@ function rowsPreview(rows) {
 
 function uploadView(status = "") {
   app.innerHTML = shell(html`
-    <div class="layout">
+    <div class="layout upload-layout">
       <section class="panel">
         <div class="panel-header">
           <div>
@@ -371,6 +379,27 @@ function adminRows(parts, query = "") {
     `).join("");
 }
 
+function latestUploadsView(uploads) {
+  return html`
+    <section class="latest-strip">
+      <div class="section-title">
+        <h2>Latest uploads</h2>
+        <span class="hint">อัปเดตล่าสุดของแต่ละเจ้า</span>
+      </div>
+      <div class="latest-grid">
+        ${uploads.length ? uploads.map((upload) => html`
+          <article class="latest-card">
+            <span class="vendor-badge">${escapeHtml(vendorLabel[upload.vendor])}</span>
+            <strong>${escapeHtml(upload.count)} rows</strong>
+            <span>${escapeHtml(formatDateTime(upload.uploadedAt))}</span>
+            <small>${escapeHtml(upload.filename || "browser upload")}</small>
+          </article>
+        `).join("") : `<div class="latest-card empty-state">ยังไม่มีข้อมูล upload</div>`}
+      </div>
+    </section>
+  `;
+}
+
 async function loadAdmin() {
   lastAdminData = await api("/api/admin/parts");
   return lastAdminData;
@@ -387,7 +416,7 @@ async function adminView(status = "") {
   }
 
   app.innerHTML = shell(html`
-    <section class="panel">
+    <section class="panel admin-panel">
       <div class="panel-header">
         <div>
           <h1>Combined parts</h1>
@@ -400,6 +429,7 @@ async function adminView(status = "") {
         </div>
       </div>
       <div class="panel-body">
+        ${latestUploadsView(data.uploads)}
         <div class="stats">
           <div class="stat"><b>${data.parts.length}</b><span>Total parts</span></div>
           <div class="stat"><b>${data.uploads.find((item) => item.vendor === "synnex")?.count || 0}</b><span>Synnex rows</span></div>
@@ -408,7 +438,7 @@ async function adminView(status = "") {
         </div>
         <div class="toolbar" style="margin-bottom:14px;">
           <input class="input" id="searchBox" placeholder="Search Part No. / Description" style="max-width:360px;">
-          <span class="hint">Updated: ${escapeHtml(data.updatedAt || "-")}</span>
+          <span class="hint">Updated: ${escapeHtml(formatDateTime(data.updatedAt))}</span>
         </div>
         ${status}
         <div class="table-wrap">
@@ -427,13 +457,7 @@ async function adminView(status = "") {
         </div>
       </div>
     </section>
-    <div class="layout" style="grid-template-columns: 1fr 320px; margin-top:18px;">
-      <section class="panel mini">
-        <h3>Latest uploads</h3>
-        ${data.uploads.length ? data.uploads.map((upload) => html`
-          <p><strong>${escapeHtml(vendorLabel[upload.vendor])}</strong> ${escapeHtml(upload.count)} rows<br><span class="hint">${escapeHtml(upload.uploadedAt)} · ${escapeHtml(upload.filename)}</span></p>
-        `).join("") : `<p>ยังไม่มีข้อมูล upload</p>`}
-      </section>
+    <div class="admin-tools">
       <aside class="side-stack">
         <section class="panel mini">
           <h3>Reset user password</h3>

@@ -136,6 +136,10 @@ textarea {
   align-items: start;
 }
 
+.upload-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -363,6 +367,10 @@ textarea {
   margin-bottom: 24px;
 }
 
+.admin-panel .stats {
+  margin-top: 22px;
+}
+
 .stat {
   padding: 22px;
   background: var(--surface-3);
@@ -437,6 +445,93 @@ td:first-child {
 
 .empty {
   color: #a1a1a6;
+}
+
+.latest-strip {
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface-3);
+}
+
+.section-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.section-title h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.latest-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.latest-card {
+  display: grid;
+  gap: 6px;
+  min-height: 118px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.latest-card strong {
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.latest-card span,
+.latest-card small {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.latest-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vendor-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 6px 12px;
+  border-radius: var(--radius-control);
+  background: #e8f2ff;
+  color: var(--primary) !important;
+  font-size: 13px !important;
+  font-weight: 600;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.admin-tools {
+  margin-top: 20px;
+}
+
+.admin-tools .side-stack {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .side-stack {
@@ -522,6 +617,11 @@ td:first-child {
     grid-template-columns: 1fr;
   }
 
+  .latest-grid,
+  .admin-tools .side-stack {
+    grid-template-columns: 1fr;
+  }
+
   .home-panel {
     grid-template-columns: 1fr;
     padding: 64px 48px;
@@ -572,6 +672,15 @@ td:first-child {
   .panel-header,
   .toolbar {
     display: grid;
+  }
+
+  .section-title {
+    display: grid;
+    align-items: start;
+  }
+
+  .latest-strip {
+    padding: 16px;
   }
 
   .panel-header,
