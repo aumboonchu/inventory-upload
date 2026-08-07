@@ -2,6 +2,7 @@
 const page = document.body.dataset.page;
 const role = document.body.dataset.vendor;
 const vendorLabel = { synnex: "Synnex", vst: "VST", ais: "AIS", admin: "Admin" };
+const supplierKeys = ["synnex", "vst", "ais"];
 const app = document.querySelector("#app");
 
 let token = localStorage.getItem(`inventory_token_${role}`) || "";
@@ -10,6 +11,7 @@ let lastAdminData = null;
 let masterParts = null;
 let masterPartsPromise = null;
 let partModalEventsBound = false;
+let adminSupplierFilters = { synnex: true, vst: true, ais: true };
 
 function html(strings, ...values) {
   return strings.reduce((out, string, index) => out + string + (values[index] ?? ""), "");
@@ -402,6 +404,7 @@ function partDetailSupplierCard(label, data) {
 }
 
 function partDetailModal(part) {
+  const activeSuppliers = getActiveAdminSuppliers();
   return html`
     <div class="modal-backdrop" data-modal-close>
       <section class="part-modal" role="dialog" aria-modal="true" aria-labelledby="partModalTitle">
@@ -424,10 +427,8 @@ function partDetailModal(part) {
 
         <div class="part-supplier-section">
           <h3>Supplier inventory</h3>
-          <div class="part-supplier-grid">
-            ${partDetailSupplierCard("Synnex", part.synnex)}
-            ${partDetailSupplierCard("VST", part.vst)}
-            ${partDetailSupplierCard("AIS", part.ais)}
+          <div class="part-supplier-grid supplier-count-${activeSuppliers.length}">
+            ${activeSuppliers.map((supplier) => partDetailSupplierCard(vendorLabel[supplier], part[supplier])).join("")}
           </div>
         </div>
 
@@ -468,7 +469,42 @@ function bindPartDetailModalEvents() {
   });
 }
 
-function adminRows(parts, query = "") {
+function getActiveAdminSuppliers() {
+  const active = supplierKeys.filter((supplier) => adminSupplierFilters[supplier]);
+  return active.length ? active : [...supplierKeys];
+}
+
+function supplierFilterControls() {
+  return html`
+    <fieldset class="supplier-filter" aria-label="Filter supplier columns">
+      <legend>Supplier</legend>
+      ${supplierKeys.map((supplier) => html`
+        <label class="supplier-filter-option ${adminSupplierFilters[supplier] ? "active" : ""}">
+          <input type="checkbox" value="${supplier}" ${adminSupplierFilters[supplier] ? "checked" : ""}>
+          <span>${escapeHtml(vendorLabel[supplier])}</span>
+        </label>
+      `).join("")}
+    </fieldset>
+  `;
+}
+
+function renderAdminTable(parts, query = "") {
+  const activeSuppliers = getActiveAdminSuppliers();
+  return html`
+    <table class="supplier-visible-${activeSuppliers.length}">
+      <thead>
+        <tr>
+          <th>Part No.</th>
+          <th>Description</th>
+          ${activeSuppliers.map((supplier) => `<th>${escapeHtml(vendorLabel[supplier])}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody id="adminBody">${adminRows(parts, query, activeSuppliers)}</tbody>
+    </table>
+  `;
+}
+
+function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
   const q = query.trim().toUpperCase();
   return parts
     .filter((part) => !q || part.partNo.includes(q) || (part.description || "").toUpperCase().includes(q))
@@ -480,9 +516,7 @@ function adminRows(parts, query = "") {
           </button>
         </td>
         <td>${escapeHtml(part.description || "")}</td>
-        <td>${vendorCell(part.synnex)}</td>
-        <td>${vendorCell(part.vst)}</td>
-        <td>${vendorCell(part.ais)}</td>
+        ${suppliers.map((supplier) => `<td>${vendorCell(part[supplier])}</td>`).join("")}
       </tr>
     `).join("");
 }
@@ -552,6 +586,7 @@ async function adminView(status = "") {
       <div class="panel-body">
         <div class="toolbar admin-toolbar">
           <input class="input search-input" id="searchBox" placeholder="Search Part No. / Description">
+          ${supplierFilterControls()}
           <div class="table-actions">
             <span class="hint">Updated: ${escapeHtml(formatDateTime(data.updatedAt))}</span>
             <details class="tool-menu">
@@ -574,20 +609,7 @@ async function adminView(status = "") {
           </div>
         </div>
         ${status}
-        <div class="table-wrap admin-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Part No.</th>
-                <th>Description</th>
-                <th>Synnex</th>
-                <th>VST</th>
-                <th>AIS</th>
-              </tr>
-            </thead>
-            <tbody id="adminBody">${adminRows(data.parts)}</tbody>
-          </table>
-        </div>
+        <div class="table-wrap admin-table" id="adminTableWrap">${renderAdminTable(data.parts)}</div>
       </div>
     </section>
 
@@ -620,13 +642,37 @@ async function adminView(status = "") {
   bindAdminPasswordReset();
   bindAdminInventoryClear();
   document.querySelector("#refreshBtn").addEventListener("click", () => adminView());
-  document.querySelector("#searchBox").addEventListener("input", (event) => {
-    document.querySelector("#adminBody").innerHTML = adminRows(lastAdminData.parts, event.target.value);
-    bindPartDetailLinks();
-  });
+  bindAdminSupplierFilters();
+  document.querySelector("#searchBox").addEventListener("input", () => renderAdminTableIntoView());
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
   bindPartDetailLinks();
   bindPartDetailModalEvents();
+}
+
+function renderAdminTableIntoView() {
+  const query = document.querySelector("#searchBox")?.value || "";
+  const tableWrap = document.querySelector("#adminTableWrap");
+  if (!tableWrap || !lastAdminData) return;
+  tableWrap.innerHTML = renderAdminTable(lastAdminData.parts, query);
+  bindPartDetailLinks();
+}
+
+function bindAdminSupplierFilters() {
+  document.querySelectorAll(".supplier-filter input").forEach((input) => {
+    input.addEventListener("change", (event) => {
+      const checkbox = event.currentTarget;
+      const supplier = checkbox.value;
+      const checkedCount = supplierKeys.filter((key) => adminSupplierFilters[key]).length;
+      if (!checkbox.checked && checkedCount === 1) {
+        checkbox.checked = true;
+        return;
+      }
+      adminSupplierFilters[supplier] = checkbox.checked;
+      checkbox.closest(".supplier-filter-option")?.classList.toggle("active", checkbox.checked);
+      closePartDetail();
+      renderAdminTableIntoView();
+    });
+  });
 }
 function bindAdminPasswordReset() {
   document.querySelectorAll("[data-reset-role]").forEach((button) => {
