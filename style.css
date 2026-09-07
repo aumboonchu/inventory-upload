@@ -127,6 +127,319 @@ textarea {
   font-weight: 700;
 }
 
+.nav-logout {
+  min-width: 94px;
+  min-height: 36px;
+  padding: 8px 14px;
+}
+
+.upload-hero {
+  margin: 0 0 30px;
+}
+
+.upload-hero h1 {
+  margin: 8px 0 6px;
+  color: var(--ink);
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.upload-hero p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.upload-steps {
+  display: flex;
+  gap: 34px;
+  margin: 0 0 34px;
+  padding: 0;
+  list-style: none;
+}
+
+.upload-steps li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 298px;
+}
+
+.upload-steps li:not(:last-child)::after {
+  position: absolute;
+  top: 15px;
+  right: -30px;
+  width: 26px;
+  height: 2px;
+  background: var(--line);
+  border-radius: 2px;
+  content: "";
+}
+
+.upload-steps li > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: #e5e7eb;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.upload-steps li.active > span {
+  background: var(--blue);
+  color: #ffffff;
+}
+
+.upload-steps strong,
+.upload-steps small {
+  display: block;
+}
+
+.upload-steps strong {
+  color: #374151;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.upload-steps li.active strong {
+  color: var(--blue);
+}
+
+.upload-steps small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.upload-redesign-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(360px, 1fr);
+  gap: 38px;
+  align-items: start;
+}
+
+.upload-source-card,
+.data-check-card,
+.account-settings-card,
+.preview-card {
+  border: 1px solid #e1e4e8;
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.upload-source-card {
+  padding: 28px 24px 24px;
+}
+
+.upload-card-heading h2,
+.data-check-card h2,
+.account-settings-card h2,
+.preview-card h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.upload-card-heading p,
+.data-check-card > p,
+.account-settings-card p,
+.preview-card p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.template-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 22px;
+  padding: 12px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.template-strip div,
+.master-part-note {
+  display: grid;
+  gap: 3px;
+}
+
+.template-strip strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.template-strip span,
+.master-part-note span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.file-dropzone {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 130px;
+  margin-top: 18px;
+  padding: 22px 24px;
+  border: 1px solid #9dc5f8;
+  border-radius: 14px;
+  background: #f4f9ff;
+}
+
+.upload-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.file-dropzone > div {
+  display: grid;
+  gap: 4px;
+}
+
+.file-dropzone strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.file-dropzone span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.file-dropzone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.paste-field {
+  display: grid;
+  gap: 9px;
+  margin-top: 17px;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.paste-field textarea {
+  min-height: 64px;
+  padding: 17px 18px;
+  font-weight: 400;
+}
+
+.upload-side-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.data-check-card {
+  padding: 28px 26px;
+}
+
+.data-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  margin: 22px 0 18px;
+}
+
+.data-fields span {
+  display: grid;
+  min-height: 40px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: #374151;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.master-part-note {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.master-part-note strong {
+  color: var(--blue);
+  font-size: 12px;
+}
+
+.account-settings-card {
+  padding: 0;
+}
+
+.account-settings-card summary {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 28px 26px 24px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.account-settings-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.account-settings-card summary .button {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
+.account-password-form {
+  padding: 0 26px 26px;
+  border-top: 1px solid var(--line);
+}
+
+.account-password-form .field:first-child {
+  margin-top: 20px;
+}
+
+.preview-card {
+  margin-top: 34px;
+}
+
+.preview-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 24px;
+}
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.preview-card-body {
+  padding: 0 24px 24px;
+}
+
+.preview-card .empty-preview {
+  min-height: 52px;
+  padding: 14px;
+}
+
 .page {
   width: min(1366px, calc(100vw - 48px));
   margin: 42px auto 56px;
@@ -1317,5 +1630,84 @@ body.modal-open {
 
   .part-supplier-card:last-child {
     border-bottom: 0;
+  }
+
+  .upload-hero {
+    margin-bottom: 24px;
+  }
+
+  .upload-hero h1 {
+    font-size: 30px;
+  }
+
+  .upload-steps {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+
+  .upload-steps li {
+    min-width: 0;
+  }
+
+  .upload-steps li:not(:last-child)::after {
+    display: none;
+  }
+
+  .upload-redesign-layout {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .upload-source-card,
+  .data-check-card {
+    padding: 20px;
+  }
+
+  .template-strip,
+  .file-dropzone,
+  .account-settings-card summary,
+  .preview-card-header {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .template-strip .button,
+  .file-dropzone .button {
+    width: 100%;
+  }
+
+  .file-dropzone {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .file-dropzone .button {
+    grid-column: 1 / -1;
+  }
+
+  .account-settings-card summary {
+    padding: 20px;
+  }
+
+  .account-settings-card summary .button {
+    width: 100%;
+  }
+
+  .preview-card-header,
+  .preview-card-body {
+    padding: 20px;
+  }
+
+  .preview-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .preview-actions .hint {
+    grid-column: 1 / -1;
+  }
+
+  .preview-actions .button {
+    width: 100%;
   }
 }

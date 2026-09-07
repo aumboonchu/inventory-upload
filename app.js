@@ -64,6 +64,7 @@ function shell(content, active = role) {
           <a class="${active === "vst" ? "active" : ""}" href="upload-vst.html">VST</a>
           <a class="${active === "ais" ? "active" : ""}" href="upload-ais.html">AIS</a>
           <a class="${active === "admin" ? "active" : ""}" href="admin.html">Admin</a>
+          ${active !== "admin" ? `<button class="button secondary nav-logout" id="logoutBtn" type="button">Logout</button>` : ""}
         </nav>
       </header>
       <main class="page">${content}</main>
@@ -269,56 +270,71 @@ function rowsPreview(rows) {
 
 function uploadView(status = "") {
   app.innerHTML = shell(html`
-    <section class="page-hero">
-      <div>
-        <p class="eyebrow">Supplier workspace</p>
-        <h1>${escapeHtml(vendorLabel[role])} Upload</h1>
-        <p>วางข้อมูลจาก Excel หรืออัปโหลด CSV แล้วตรวจ preview ก่อนส่งเข้า Admin</p>
-      </div>
-      <button class="button secondary" id="logoutBtn" type="button">Logout</button>
+    <section class="upload-hero">
+      <p class="eyebrow">SUPPLIER WORKSPACE / ${escapeHtml(vendorLabel[role]).toUpperCase()}</p>
+      <h1>Upload inventory</h1>
+      <p>นำเข้าไฟล์ supplier แล้วตรวจข้อมูลให้พร้อมก่อนส่งเข้า Admin</p>
     </section>
 
-    <div class="layout upload-layout">
-      <section class="panel upload-panel">
-        <div class="panel-header compact">
+    <ol class="upload-steps" aria-label="Upload progress">
+      <li class="active"><span>1</span><div><strong>Upload source</strong><small>เลือกไฟล์หรือวางข้อมูล</small></div></li>
+      <li><span>2</span><div><strong>Review preview</strong><small>ตรวจ Part No., Qty และราคา</small></div></li>
+      <li><span>3</span><div><strong>Send to Admin</strong><small>ยืนยันและแทนข้อมูลเดิม</small></div></li>
+    </ol>
+
+    <div class="upload-redesign-layout">
+      <section class="upload-source-card">
+        <div class="upload-card-heading">
+          <h2>Add source data</h2>
+          <p>อัปโหลด CSV หรือวางตารางจาก Excel ได้ทันที</p>
+        </div>
+
+        <div class="template-strip">
           <div>
-            <h2>Upload source</h2>
-            <p>Columns: Part No., Description, Qty, Price (ex VAT)</p>
+            <strong>Use the current template</strong>
+            <span>Part No., Description, Qty, Price (ex VAT)</span>
           </div>
+          <a class="button secondary" href="template-${role}.csv" download>Download template</a>
         </div>
-        <div class="panel-body">
-          <div class="dropzone redesign-dropzone">
-            <div class="upload-source-row">
-              <div>
-                <strong>CSV file</strong>
-                <span class="hint">เลือกไฟล์ CSV หรือใช้ template ล่าสุดก่อน upload</span>
-              </div>
-              <a class="button secondary" href="template-${role}.csv" download>Download template</a>
-            </div>
-            <input class="input file-input" id="csvFile" type="file" accept=".csv,text/csv">
-            <textarea id="pasteBox" placeholder="Paste data from Excel / CSV here"></textarea>
-            <div class="actions upload-actions">
-              <button class="button secondary" id="parsePasteBtn" type="button">Preview pasted data</button>
-              <button class="button primary" id="uploadBtn" type="button" ${parsedRows.length ? "" : "disabled"}>Upload to ${escapeHtml(vendorLabel[role])}</button>
-            </div>
+
+        <div class="file-dropzone">
+          <img class="upload-icon" src="assets/upload.svg" alt="" aria-hidden="true">
+          <div>
+            <strong>Drop CSV here or choose a file</strong>
+            <span>ไฟล์ใหม่จะแทนข้อมูลเดิมของ ${escapeHtml(vendorLabel[role])} หลังจากยืนยัน upload</span>
           </div>
-          ${status}
+          <input id="csvFile" type="file" accept=".csv,text/csv">
+          <label class="button primary" for="csvFile">Choose CSV</label>
         </div>
+
+        <label class="paste-field" for="pasteBox">
+          <span>หรือวางข้อมูลจาก Excel / CSV</span>
+          <textarea id="pasteBox" placeholder="วางข้อมูลที่นี่"></textarea>
+        </label>
       </section>
 
-      <aside class="side-stack guide-stack">
-        <section class="panel mini guide-panel">
-          <h3>Before upload</h3>
-          <div class="step-list">
-            <div><span>1</span><p>ใช้ template ล่าสุด</p></div>
-            <div><span>2</span><p>ตรวจ preview ให้ Part No. และ Price ตรง</p></div>
-            <div><span>3</span><p>Upload ใหม่จะแทนข้อมูลเดิมของ supplier นี้</p></div>
+      <aside class="upload-side-stack">
+        <section class="data-check-card">
+          <h2>Data check</h2>
+          <p>ตรวจให้ครบก่อนสร้าง preview</p>
+          <div class="data-fields">
+            <span>Part No.</span><span>Description</span><span>Qty</span><span>Price (ex VAT)</span>
+          </div>
+          <div class="master-part-note">
+            <strong>Apple master part</strong>
+            <span>ถ้าพบ Part No. ในรายการกลาง ระบบจะใช้ชื่อสินค้านั้นก่อน</span>
           </div>
         </section>
-        <section class="panel mini">
-          <h3>Change password</h3>
-          <p>เปลี่ยนรหัสผ่านเฉพาะหน้า ${escapeHtml(vendorLabel[role])}</p>
-          <form id="passwordForm">
+
+        <details class="account-settings-card">
+          <summary>
+            <div>
+              <h2>Account settings</h2>
+              <p>เปลี่ยนรหัสผ่านสำหรับ ${escapeHtml(vendorLabel[role])} โดยไม่รบกวนขั้นตอน upload</p>
+            </div>
+            <span class="button secondary">Change password</span>
+          </summary>
+          <form id="passwordForm" class="account-password-form">
             <div class="field">
               <label>Current password</label>
               <input class="input" name="currentPassword" type="password" required>
@@ -329,19 +345,25 @@ function uploadView(status = "") {
             </div>
             <button class="button warning full" type="submit">Change password</button>
           </form>
-        </section>
+        </details>
       </aside>
     </div>
 
-    <section class="panel preview-panel">
-      <div class="panel-header compact inline-header">
+    ${status}
+
+    <section class="preview-card">
+      <div class="preview-card-header">
         <div>
-          <h2>Preview</h2>
-          <p>ตรวจข้อมูลก่อน upload เข้า Admin</p>
+          <h2>Review preview</h2>
+          <p>ตรวจข้อมูลก่อนส่งเข้า Admin</p>
         </div>
-        <span class="hint">${parsedRows.length} rows ready</span>
+        <div class="preview-actions">
+          <span class="hint">${parsedRows.length} rows ready</span>
+          <button class="button secondary" id="parsePasteBtn" type="button">Preview data</button>
+          <button class="button primary" id="uploadBtn" type="button" ${parsedRows.length ? "" : "disabled"}>Upload to ${escapeHtml(vendorLabel[role])}</button>
+        </div>
       </div>
-      <div class="panel-body">${rowsPreview(parsedRows)}</div>
+      <div class="preview-card-body">${rowsPreview(parsedRows)}</div>
     </section>
   `, role);
 
