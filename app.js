@@ -12,6 +12,7 @@ let masterParts = null;
 let masterPartsPromise = null;
 let partModalEventsBound = false;
 let adminSupplierFilters = { synnex: true, vst: true, ais: true };
+let adminOrderFilter = "all";
 
 function html(strings, ...values) {
   return strings.reduce((out, string, index) => out + string + (values[index] ?? ""), "");
@@ -375,10 +376,22 @@ function uploadView(status = "") {
     }
   });
 }
-function vendorCell(data) {
+function vendorCell(data, part, supplier) {
   if (!data) return `<span class="empty">-</span>`;
+  const ordered = Boolean(part.orders?.[supplier]);
   return html`
     <div class="vendor-cell">
+      <label class="vendor-order-control">
+        <input
+          class="supplier-order-toggle"
+          data-ordered-part-no="${escapeHtml(part.partNo)}"
+          data-ordered-supplier="${escapeHtml(supplier)}"
+          type="checkbox"
+          ${ordered ? "checked" : ""}
+          aria-label="Mark ${escapeHtml(part.partNo)} as ordered from ${escapeHtml(vendorLabel[supplier])}"
+        >
+        <span>${ordered ? "สั่งแล้ว" : "ยังไม่สั่ง"}</span>
+      </label>
       <strong>${escapeHtml(data.qty || "-")}</strong>
       <span class="muted">Price (ex VAT): ${escapeHtml(data.price || "-")}</span>
     </div>
@@ -474,6 +487,46 @@ function getActiveAdminSuppliers() {
   return active.length ? active : [...supplierKeys];
 }
 
+function orderStateFor(part) {
+  const availableSuppliers = supplierKeys.filter((supplier) => part[supplier]);
+  const orderedSuppliers = availableSuppliers.filter((supplier) => part.orders?.[supplier]);
+  const pendingSuppliers = availableSuppliers.filter((supplier) => !part.orders?.[supplier]);
+
+  if (!availableSuppliers.length) return { key: "none", label: "ไม่มีสินค้า", detail: "-" };
+  if (!orderedSuppliers.length) return { key: "pending", label: "ยังไม่สั่ง", detail: `${availableSuppliers.length} supplier` };
+  if (!pendingSuppliers.length) return { key: "complete", label: "สั่งครบแล้ว", detail: `${orderedSuppliers.length}/${availableSuppliers.length} supplier` };
+
+  return {
+    key: "partial",
+    label: "สั่งบางเจ้า",
+    detail: `เหลือ ${pendingSuppliers.map((supplier) => vendorLabel[supplier]).join(", ")}`
+  };
+}
+
+function orderStateCell(part) {
+  const state = orderStateFor(part);
+  return html`
+    <div class="order-state order-state-${state.key}">
+      <strong>${escapeHtml(state.label)}</strong>
+      <span>${escapeHtml(state.detail)}</span>
+    </div>
+  `;
+}
+
+function orderFilterControl() {
+  return html`
+    <label class="order-filter" for="orderFilter">
+      <span>Order status</span>
+      <select class="input" id="orderFilter">
+        <option value="all" ${adminOrderFilter === "all" ? "selected" : ""}>ทั้งหมด</option>
+        <option value="pending" ${adminOrderFilter === "pending" ? "selected" : ""}>ยังไม่สั่ง</option>
+        <option value="partial" ${adminOrderFilter === "partial" ? "selected" : ""}>สั่งบางเจ้า</option>
+        <option value="complete" ${adminOrderFilter === "complete" ? "selected" : ""}>สั่งครบแล้ว</option>
+      </select>
+    </label>
+  `;
+}
+
 function supplierFilterControls() {
   return html`
     <fieldset class="supplier-filter" aria-label="Filter supplier columns">
@@ -494,7 +547,7 @@ function renderAdminTable(parts, query = "") {
     <table class="supplier-visible-${activeSuppliers.length}">
       <thead>
         <tr>
-          <th class="order-column">Ordered</th>
+          <th class="order-column">Order status</th>
           <th>Part No.</th>
           <th>Description</th>
           ${activeSuppliers.map((supplier) => `<th>${escapeHtml(vendorLabel[supplier])}</th>`).join("")}
@@ -509,17 +562,11 @@ function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
   const q = query.trim().toUpperCase();
   return parts
     .filter((part) => !q || part.partNo.includes(q) || (part.description || "").toUpperCase().includes(q))
+    .filter((part) => adminOrderFilter === "all" || orderStateFor(part).key === adminOrderFilter)
     .map((part) => html`
       <tr>
         <td class="order-cell">
-          <input
-            class="part-order-toggle"
-            data-ordered-part-no="${escapeHtml(part.partNo)}"
-            type="checkbox"
-            ${part.ordered ? "checked" : ""}
-            aria-label="Mark ${escapeHtml(part.partNo)} as ordered"
-            title="${part.ordered ? "Ordered" : "Mark as ordered"}"
-          >
+          ${orderStateCell(part)}
         </td>
         <td>
           <button class="part-link" data-part-no="${escapeHtml(part.partNo)}" type="button">
@@ -527,7 +574,7 @@ function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
           </button>
         </td>
         <td>${escapeHtml(part.description || "")}</td>
-        ${suppliers.map((supplier) => `<td>${vendorCell(part[supplier])}</td>`).join("")}
+        ${suppliers.map((supplier) => `<td>${vendorCell(part[supplier], part, supplier)}</td>`).join("")}
       </tr>
     `).join("");
 }
@@ -598,6 +645,7 @@ async function adminView(status = "") {
         <div class="toolbar admin-toolbar">
           <input class="input search-input" id="searchBox" placeholder="Search Part No. / Description">
           ${supplierFilterControls()}
+          ${orderFilterControl()}
           <div class="table-actions">
             <span class="hint">Updated: ${escapeHtml(formatDateTime(data.updatedAt))}</span>
             <details class="tool-menu">
@@ -654,6 +702,7 @@ async function adminView(status = "") {
   bindAdminInventoryClear();
   document.querySelector("#refreshBtn").addEventListener("click", () => adminView());
   bindAdminSupplierFilters();
+  bindAdminOrderFilter();
   document.querySelector("#searchBox").addEventListener("input", () => renderAdminTableIntoView());
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
   bindPartDetailLinks();
@@ -674,20 +723,22 @@ function bindPartOrderToggles() {
   document.querySelectorAll("[data-ordered-part-no]").forEach((checkbox) => {
     checkbox.addEventListener("change", async () => {
       const partNo = checkbox.dataset.orderedPartNo;
+      const supplier = checkbox.dataset.orderedSupplier;
       const part = lastAdminData?.parts?.find((item) => item.partNo === partNo);
-      const wasOrdered = Boolean(part?.ordered);
+      const wasOrdered = Boolean(part?.orders?.[supplier]);
       const ordered = checkbox.checked;
       checkbox.disabled = true;
 
       try {
         const data = await api("/api/admin/part-order-status", {
           method: "POST",
-          body: JSON.stringify({ partNo, ordered })
+          body: JSON.stringify({ partNo, supplier, ordered })
         });
-        if (part) part.ordered = data.ordered;
-        checkbox.checked = data.ordered;
-        checkbox.title = data.ordered ? "Ordered" : "Mark as ordered";
-        showAdminExportStatus(data.ordered ? `ทำเครื่องหมาย ${partNo} ว่าสั่งแล้ว` : `ยกเลิกสถานะสั่งแล้วของ ${partNo}`);
+        if (part) part.orders = { ...part.orders, [supplier]: data.ordered };
+        renderAdminTableIntoView();
+        showAdminExportStatus(data.ordered
+          ? `ทำเครื่องหมาย ${partNo} ว่าสั่งจาก ${vendorLabel[supplier]} แล้ว`
+          : `ยกเลิกสถานะสั่งแล้วของ ${partNo} จาก ${vendorLabel[supplier]}`);
       } catch (error) {
         checkbox.checked = wasOrdered;
         showAdminExportStatus(error.message, "error");
@@ -713,6 +764,14 @@ function bindAdminSupplierFilters() {
       closePartDetail();
       renderAdminTableIntoView();
     });
+  });
+}
+
+function bindAdminOrderFilter() {
+  document.querySelector("#orderFilter")?.addEventListener("change", (event) => {
+    adminOrderFilter = event.currentTarget.value;
+    closePartDetail();
+    renderAdminTableIntoView();
   });
 }
 function bindAdminPasswordReset() {
