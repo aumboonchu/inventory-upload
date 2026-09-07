@@ -686,6 +686,7 @@ async function adminView(status = "") {
                 <button class="menu-action danger" data-clear-role="ais" type="button">Clear AIS</button>
               </div>
             </details>
+            <button class="button secondary" id="resetOrderStatusBtn" type="button">Reset order status</button>
             <button class="button secondary" id="logoutBtn" type="button">Logout</button>
           </div>
         </div>
@@ -722,6 +723,7 @@ async function adminView(status = "") {
   bindCommon();
   bindAdminPasswordReset();
   bindAdminInventoryClear();
+  bindAdminOrderStatusReset();
   document.querySelector("#refreshBtn").addEventListener("click", () => adminView());
   bindAdminSupplierFilters();
   bindAdminOrderFilter();
@@ -829,6 +831,19 @@ function bindAdminInventoryClear() {
         adminView(`<div class="status error">${escapeHtml(error.message)}</div>`);
       }
     });
+  });
+}
+
+function bindAdminOrderStatusReset() {
+  document.querySelector("#resetOrderStatusBtn")?.addEventListener("click", async () => {
+    if (!confirm("Reset สถานะสั่งแล้วทั้งหมดให้กลับเป็นยังไม่สั่ง? ข้อมูล inventory จะไม่ถูกลบ")) return;
+
+    try {
+      await api("/api/admin/reset-order-status", { method: "POST" });
+      adminView('<div class="status success">Reset สถานะสั่งแล้วทั้งหมดเป็นยังไม่สั่งแล้ว</div>');
+    } catch (error) {
+      adminView(`<div class="status error">${escapeHtml(error.message)}</div>`);
+    }
   });
 }
 
