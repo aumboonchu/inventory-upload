@@ -494,6 +494,7 @@ function renderAdminTable(parts, query = "") {
     <table class="supplier-visible-${activeSuppliers.length}">
       <thead>
         <tr>
+          <th class="order-column">Ordered</th>
           <th>Part No.</th>
           <th>Description</th>
           ${activeSuppliers.map((supplier) => `<th>${escapeHtml(vendorLabel[supplier])}</th>`).join("")}
@@ -510,6 +511,16 @@ function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
     .filter((part) => !q || part.partNo.includes(q) || (part.description || "").toUpperCase().includes(q))
     .map((part) => html`
       <tr>
+        <td class="order-cell">
+          <input
+            class="part-order-toggle"
+            data-ordered-part-no="${escapeHtml(part.partNo)}"
+            type="checkbox"
+            ${part.ordered ? "checked" : ""}
+            aria-label="Mark ${escapeHtml(part.partNo)} as ordered"
+            title="${part.ordered ? "Ordered" : "Mark as ordered"}"
+          >
+        </td>
         <td>
           <button class="part-link" data-part-no="${escapeHtml(part.partNo)}" type="button">
             ${escapeHtml(part.partNo)}
@@ -646,6 +657,7 @@ async function adminView(status = "") {
   document.querySelector("#searchBox").addEventListener("input", () => renderAdminTableIntoView());
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
   bindPartDetailLinks();
+  bindPartOrderToggles();
   bindPartDetailModalEvents();
 }
 
@@ -655,6 +667,35 @@ function renderAdminTableIntoView() {
   if (!tableWrap || !lastAdminData) return;
   tableWrap.innerHTML = renderAdminTable(lastAdminData.parts, query);
   bindPartDetailLinks();
+  bindPartOrderToggles();
+}
+
+function bindPartOrderToggles() {
+  document.querySelectorAll("[data-ordered-part-no]").forEach((checkbox) => {
+    checkbox.addEventListener("change", async () => {
+      const partNo = checkbox.dataset.orderedPartNo;
+      const part = lastAdminData?.parts?.find((item) => item.partNo === partNo);
+      const wasOrdered = Boolean(part?.ordered);
+      const ordered = checkbox.checked;
+      checkbox.disabled = true;
+
+      try {
+        const data = await api("/api/admin/part-order-status", {
+          method: "POST",
+          body: JSON.stringify({ partNo, ordered })
+        });
+        if (part) part.ordered = data.ordered;
+        checkbox.checked = data.ordered;
+        checkbox.title = data.ordered ? "Ordered" : "Mark as ordered";
+        showAdminExportStatus(data.ordered ? `ทำเครื่องหมาย ${partNo} ว่าสั่งแล้ว` : `ยกเลิกสถานะสั่งแล้วของ ${partNo}`);
+      } catch (error) {
+        checkbox.checked = wasOrdered;
+        showAdminExportStatus(error.message, "error");
+      } finally {
+        checkbox.disabled = false;
+      }
+    });
+  });
 }
 
 function bindAdminSupplierFilters() {

@@ -693,7 +693,7 @@ textarea {
 
 table {
   width: 100%;
-  min-width: 920px;
+  min-width: 980px;
   border-collapse: collapse;
   background: var(--surface);
 }
@@ -722,6 +722,31 @@ tr:last-child td {
 
 td:first-child {
   font-weight: 800;
+}
+
+.order-column,
+.order-cell {
+  width: 72px;
+  min-width: 72px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.order-cell {
+  padding-right: 8px;
+  padding-left: 12px;
+}
+
+.part-order-toggle {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--blue);
+}
+
+.part-order-toggle:disabled {
+  cursor: wait;
 }
 
 .part-link {
