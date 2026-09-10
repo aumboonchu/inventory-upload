@@ -13,6 +13,11 @@ let masterPartsPromise = null;
 let partModalEventsBound = false;
 let adminSupplierFilters = { synnex: true, vst: true, ais: true };
 let adminOrderFilter = "all";
+let adminSearchQuery = "";
+
+function adminIcon(name) {
+  return `<img class="admin-icon" src="assets/admin-${name}.svg" width="18" height="18" alt="">`;
+}
 
 function html(strings, ...values) {
   return strings.reduce((out, string, index) => out + string + (values[index] ?? ""), "");
@@ -30,8 +35,11 @@ function formatDateTime(value) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  const pad = (number) => String(number).padStart(2, "0");
-  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()} (${pad(date.getHours())}:${pad(date.getMinutes())})`;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(date).map(({ type, value }) => [type, value]));
+  return `${parts.day}-${parts.month}-${parts.year} (${parts.hour}:${parts.minute})`;
 }
 
 async function api(path, options = {}) {
@@ -64,7 +72,7 @@ function shell(content, active = role) {
           <a class="${active === "vst" ? "active" : ""}" href="upload-vst.html">VST</a>
           <a class="${active === "ais" ? "active" : ""}" href="upload-ais.html">AIS</a>
           <a class="${active === "admin" ? "active" : ""}" href="admin.html">Admin</a>
-          ${active !== "admin" ? `<button class="button secondary nav-logout" id="logoutBtn" type="button">Logout</button>` : ""}
+          <button class="button secondary nav-logout ${active === "admin" ? "icon-button" : ""}" id="logoutBtn" type="button" title="Logout" aria-label="Logout">${active === "admin" ? adminIcon("logout") : "Logout"}</button>
         </nav>
       </header>
       <main class="page">${content}</main>
@@ -403,6 +411,7 @@ function vendorCell(data, part, supplier) {
   const ordered = Boolean(part.orders?.[supplier]);
   return html`
     <div class="vendor-cell">
+      <div class="vendor-values"><strong>${escapeHtml(data.qty ?? "-")}</strong><span>${data.price !== "" && data.price != null ? `฿${escapeHtml(data.price)}` : "-"}</span></div>
       <label class="vendor-order-control">
         <input
           class="supplier-order-toggle"
@@ -414,8 +423,6 @@ function vendorCell(data, part, supplier) {
         >
         <span>${ordered ? "สั่งแล้ว" : "ยังไม่สั่ง"}</span>
       </label>
-      <strong>${escapeHtml(data.qty || "-")}</strong>
-      <span class="muted">Price (ex VAT): ${escapeHtml(data.price || "-")}</span>
     </div>
   `;
 }
@@ -515,13 +522,13 @@ function orderStateFor(part) {
   const pendingSuppliers = availableSuppliers.filter((supplier) => !part.orders?.[supplier]);
 
   if (!availableSuppliers.length) return { key: "none", label: "ไม่มีสินค้า", detail: "-" };
-  if (!orderedSuppliers.length) return { key: "pending", label: "ยังไม่สั่ง", detail: `${availableSuppliers.length} supplier` };
+  if (!orderedSuppliers.length) return { key: "pending", label: "ยังไม่สั่ง", detail: `0/${availableSuppliers.length} supplier` };
   if (!pendingSuppliers.length) return { key: "complete", label: "สั่งครบแล้ว", detail: `${orderedSuppliers.length}/${availableSuppliers.length} supplier` };
 
   return {
     key: "partial",
-    label: "สั่งบางเจ้า",
-    detail: `เหลือ ${pendingSuppliers.map((supplier) => vendorLabel[supplier]).join(", ")}`
+    label: "สั่งบาง Supplier",
+    detail: `${orderedSuppliers.length}/${availableSuppliers.length} supplier`
   };
 }
 
@@ -536,17 +543,9 @@ function orderStateCell(part) {
 }
 
 function orderFilterControl() {
-  return html`
-    <label class="order-filter" for="orderFilter">
-      <span>Order status</span>
-      <select class="input" id="orderFilter">
-        <option value="all" ${adminOrderFilter === "all" ? "selected" : ""}>ทั้งหมด</option>
-        <option value="pending" ${adminOrderFilter === "pending" ? "selected" : ""}>ยังไม่สั่ง</option>
-        <option value="partial" ${adminOrderFilter === "partial" ? "selected" : ""}>สั่งบางเจ้า</option>
-        <option value="complete" ${adminOrderFilter === "complete" ? "selected" : ""}>สั่งครบแล้ว</option>
-      </select>
-    </label>
-  `;
+  return `<div class="order-tabs" role="group" aria-label="สถานะสั่งซื้อ">${[
+    ["all", "ทั้งหมด"], ["pending", "ยังไม่สั่ง"], ["partial", "สั่งบาง Supplier"], ["complete", "สั่งครบแล้ว"]
+  ].map(([value, label]) => `<button type="button" data-order-filter="${value}" aria-pressed="${adminOrderFilter === value}" class="order-tab ${adminOrderFilter === value ? "active" : ""}">${label}</button>`).join("")}</div>`;
 }
 
 function supplierFilterControls() {
@@ -569,10 +568,10 @@ function renderAdminTable(parts, query = "") {
     <table class="supplier-visible-${activeSuppliers.length}">
       <thead>
         <tr>
-          <th class="order-column">Order status</th>
-          <th>Part No.</th>
-          <th>Description</th>
-          ${activeSuppliers.map((supplier) => `<th>${escapeHtml(vendorLabel[supplier])}</th>`).join("")}
+          <th class="order-column" scope="col">สถานะสั่งซื้อ</th>
+          <th class="part-column" scope="col">Part No.</th>
+          <th class="description-column" scope="col">Description</th>
+          ${activeSuppliers.map((supplier) => `<th class="supplier-column" scope="col">${escapeHtml(vendorLabel[supplier])}<small>Qty / Price (ex VAT)</small></th>`).join("")}
         </tr>
       </thead>
       <tbody id="adminBody">${adminRows(parts, query, activeSuppliers)}</tbody>
@@ -580,13 +579,19 @@ function renderAdminTable(parts, query = "") {
   `;
 }
 
-function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
+function filteredAdminParts(parts, query = "") {
   const q = query.trim().toUpperCase();
   return parts
     .filter((part) => !q || part.partNo.includes(q) || (part.description || "").toUpperCase().includes(q))
-    .filter((part) => adminOrderFilter === "all" || orderStateFor(part).key === adminOrderFilter)
+    .filter((part) => adminOrderFilter === "all" || orderStateFor(part).key === adminOrderFilter);
+}
+
+function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
+  const rows = filteredAdminParts(parts, query);
+  if (!rows.length) return `<tr><td class="inventory-empty" colspan="${3 + suppliers.length}">ไม่พบรายการสินค้า</td></tr>`;
+  return rows
     .map((part) => html`
-      <tr>
+      <tr class="inventory-row state-${orderStateFor(part).key}">
         <td class="order-cell">
           ${orderStateCell(part)}
         </td>
@@ -606,17 +611,19 @@ function latestUploadsView(uploads) {
     <section class="latest-strip">
       <div class="section-title">
         <h2>Latest uploads</h2>
-        <span class="hint">รูปแบบวันเวลา dd-mm-yyyy (time)</span>
+        <span class="hint">เวลาประเทศไทย</span>
       </div>
       <div class="latest-grid">
-        ${uploads.length ? uploads.map((upload) => html`
-          <article class="latest-card">
-            <span class="vendor-badge">${escapeHtml(vendorLabel[upload.vendor])}</span>
-            <strong>${escapeHtml(upload.count)} rows</strong>
-            <span>${escapeHtml(formatDateTime(upload.uploadedAt))}</span>
-            <small>${escapeHtml(upload.filename || "browser upload")}</small>
+        ${supplierKeys.map((supplier) => {
+          const upload = uploads.find((item) => item.vendor === supplier);
+          return html`
+          <article class="latest-card latest-${supplier}">
+            <div class="latest-info"><h3>${escapeHtml(vendorLabel[supplier])}</h3>
+            <span>${upload ? escapeHtml(formatDateTime(upload.uploadedAt)) : "ยังไม่มีข้อมูล"}</span>
+            <small>${upload ? escapeHtml(upload.filename || "browser upload") : "รอการอัปโหลด"}</small></div>
+            <div class="latest-count"><strong>${escapeHtml(upload?.count ?? 0)}</strong><span>rows</span></div>
           </article>
-        `).join("") : `<div class="latest-card empty-state">ยังไม่มีข้อมูล upload</div>`}
+        `; }).join("")}
       </div>
     </section>
   `;
@@ -627,97 +634,56 @@ async function loadAdmin() {
 }
 
 async function adminView(status = "") {
-  let data = lastAdminData;
+  let data;
   try {
     data = await loadAdmin();
   } catch (error) {
     if (error.message === "Unauthorized") return loginView();
     status = `<div class="status error">${escapeHtml(error.message)}</div>`;
-    data = { parts: [], uploads: [] };
+    data = lastAdminData || { parts: [], uploads: [] };
   }
-
-  const countFor = (vendor) => data.uploads.find((item) => item.vendor === vendor)?.count || 0;
 
   app.innerHTML = shell(html`
     <section class="page-hero admin-hero">
-      <div>
-        <h1>Combined Inventory</h1>
-        <p>อัพเดตล่าสุดจากทุก supplier ให้เห็นสถานะ จำนวนสินค้า และพร้อมตัดสินใจ</p>
-      </div>
+      <div><h1>Combined Inventory</h1><p>${data.parts.length} parts / Synnex · VST · AIS</p></div>
       <div class="actions hero-actions">
-        <button class="button secondary" id="exportBtn" type="button">Export CSV</button>
-        <button class="button primary" id="refreshBtn" type="button">Refresh</button>
+        <button class="button secondary icon-button" id="refreshBtn" type="button" title="Refresh" aria-label="Refresh">${adminIcon("refresh")}</button>
+        <button class="button primary" id="exportBtn" type="button">${adminIcon("download")}Export CSV</button>
       </div>
     </section>
-
-    <section class="admin-overview">
-      <div class="overview-latest">
-        ${latestUploadsView(data.uploads)}
-      </div>
-      <div class="stats admin-stats">
-        <div class="stat"><span>Total parts</span><b>${data.parts.length}</b></div>
-        <div class="stat"><span>Synnex rows</span><b>${countFor("synnex")}</b></div>
-        <div class="stat"><span>VST rows</span><b>${countFor("vst")}</b></div>
-        <div class="stat"><span>AIS rows</span><b>${countFor("ais")}</b></div>
-      </div>
-    </section>
-
-    <section class="panel admin-panel">
-      <div class="panel-body">
-        <div class="toolbar admin-toolbar">
-          <input class="input search-input" id="searchBox" placeholder="Search Part No. / Description">
-          ${supplierFilterControls()}
-          ${orderFilterControl()}
-          <div class="table-actions">
-            <span class="hint">Updated: ${escapeHtml(formatDateTime(data.updatedAt))}</span>
-            <details class="tool-menu">
-              <summary class="button secondary">Reset</summary>
-              <div class="tool-menu-list">
-                <button class="menu-action" data-reset-role="synnex" type="button">Reset Synnex</button>
-                <button class="menu-action" data-reset-role="vst" type="button">Reset VST</button>
-                <button class="menu-action" data-reset-role="ais" type="button">Reset AIS</button>
-              </div>
-            </details>
-            <details class="tool-menu">
-              <summary class="button primary">Clear</summary>
-              <div class="tool-menu-list">
-                <button class="menu-action danger" data-clear-role="synnex" type="button">Clear Synnex</button>
-                <button class="menu-action danger" data-clear-role="vst" type="button">Clear VST</button>
-                <button class="menu-action danger" data-clear-role="ais" type="button">Clear AIS</button>
-              </div>
-            </details>
-            <button class="button secondary" id="resetOrderStatusBtn" type="button">Reset order status</button>
-            <button class="button secondary" id="logoutBtn" type="button">Logout</button>
-          </div>
+    <section class="admin-overview">${latestUploadsView(data.uploads)}</section>
+    <section class="admin-workspace">
+      <div class="admin-toolbar">
+        <label class="admin-search">${adminIcon("search")}<input id="searchBox" type="search" aria-label="ค้นหา Part No. / ชื่อสินค้า" placeholder="ค้นหา Part No. / ชื่อสินค้า" value="${escapeHtml(adminSearchQuery)}"></label>
+        <div class="admin-filter-actions">
+          <span class="supplier-caption">Supplier</span>${supplierFilterControls()}
+          <details class="tool-menu admin-management" id="adminManagement">
+            <summary class="button secondary">${adminIcon("settings")}จัดการ${adminIcon("down")}</summary>
+            <div class="tool-menu-list">
+              <span class="menu-heading">สถานะสั่งซื้อ</span>
+              <button class="menu-action reset-orders" id="resetOrderStatusBtn" type="button">Reset สั่งแล้วทั้งหมด</button>
+              <hr><span class="menu-heading">รหัสผ่าน</span>
+              <button class="menu-action" id="adminPasswordBtn" type="button">เปลี่ยนรหัสผ่าน Admin</button>
+              ${supplierKeys.map((supplier) => `<button class="menu-action" data-reset-role="${supplier}" type="button">Reset รหัสผ่าน ${vendorLabel[supplier]}</button>`).join("")}
+              <hr><span class="menu-heading">ล้าง Inventory</span>
+              ${supplierKeys.map((supplier) => `<button class="menu-action danger" data-clear-role="${supplier}" type="button">ล้างข้อมูล ${vendorLabel[supplier]}</button>`).join("")}
+            </div>
+          </details>
         </div>
-        ${status}
-        <div class="table-wrap admin-table" id="adminTableWrap">${renderAdminTable(data.parts)}</div>
       </div>
+      <div class="admin-order-bar">${orderFilterControl()}<span id="visiblePartsCount" class="hint">${filteredAdminParts(data.parts, adminSearchQuery).length} parts</span></div>
+      ${status}
+      <div class="table-wrap admin-table" id="adminTableWrap" tabindex="0" role="region" aria-label="ตาราง inventory">${renderAdminTable(data.parts, adminSearchQuery)}</div>
+      <div class="admin-footer"><span>${adminIcon("clock")}Updated: ${escapeHtml(formatDateTime(data.updatedAt))}</span><span>Price (ex VAT)</span></div>
     </section>
-
-    <section class="admin-tools">
-      <div class="section-title tools-title">
-        <h2>Password</h2>
-        <span class="hint">เปลี่ยนรหัสผ่านเฉพาะหน้า Admin</span>
-      </div>
-      <aside class="side-stack">
-        <section class="panel mini">
-          <h3>Change password</h3>
-          <p>เปลี่ยนรหัสผ่านเฉพาะหน้า Admin</p>
-          <form id="passwordForm">
-            <div class="field">
-              <label>Current password</label>
-              <input class="input" name="currentPassword" type="password" required>
-            </div>
-            <div class="field">
-              <label>New password</label>
-              <input class="input" name="newPassword" type="password" minlength="3" required>
-            </div>
-            <button class="button warning full" type="submit">Change password</button>
-          </form>
-        </section>
-      </aside>
-    </section>
+    <dialog class="admin-dialog" id="adminPasswordDialog" aria-labelledby="adminPasswordTitle">
+      <h2 id="adminPasswordTitle">เปลี่ยนรหัสผ่าน Admin</h2>
+      <form id="passwordForm">
+        <div class="field"><label for="adminCurrentPassword">Current password</label><input class="input" id="adminCurrentPassword" name="currentPassword" type="password" autocomplete="current-password" required></div>
+        <div class="field"><label for="adminNewPassword">New password</label><input class="input" id="adminNewPassword" name="newPassword" type="password" autocomplete="new-password" minlength="3" required></div>
+        <div class="dialog-actions"><button class="button secondary" type="button" data-dialog-cancel>ยกเลิก</button><button class="button primary" type="submit">เปลี่ยนรหัสผ่าน</button></div>
+      </form>
+    </dialog>
   `, "admin");
 
   bindCommon();
@@ -727,11 +693,53 @@ async function adminView(status = "") {
   document.querySelector("#refreshBtn").addEventListener("click", () => adminView());
   bindAdminSupplierFilters();
   bindAdminOrderFilter();
-  document.querySelector("#searchBox").addEventListener("input", () => renderAdminTableIntoView());
+  document.querySelector("#searchBox").addEventListener("input", (event) => {
+    adminSearchQuery = event.currentTarget.value;
+    renderAdminTableIntoView();
+  });
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
+  const passwordDialog = document.querySelector("#adminPasswordDialog");
+  document.querySelector("#adminPasswordBtn").addEventListener("click", () => {
+    closeAdminManagement();
+    passwordDialog.showModal();
+  });
+  passwordDialog.querySelector("[data-dialog-cancel]").addEventListener("click", () => passwordDialog.close());
+  const menu = document.querySelector("#adminManagement");
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { menu.open = false; menu.querySelector("summary").focus(); }
+  });
+  app.onclick = (event) => { if (!menu.contains(event.target)) menu.open = false; };
   bindPartDetailLinks();
   bindPartOrderToggles();
   bindPartDetailModalEvents();
+}
+
+function closeAdminManagement() {
+  const menu = document.querySelector("#adminManagement");
+  if (menu) menu.open = false;
+}
+
+function confirmAdminAction({ title, message, note = "", confirmLabel = "ยืนยัน", danger = false }) {
+  closeAdminManagement();
+  return new Promise((resolve) => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "admin-dialog";
+    dialog.setAttribute("aria-labelledby", "adminConfirmTitle");
+    dialog.innerHTML = `<h2 id="adminConfirmTitle">${escapeHtml(title)}</h2>
+      <p>${escapeHtml(message)}</p>
+      ${note ? `<p class="dialog-note">${escapeHtml(note)}</p>` : ""}
+      <form method="dialog" class="dialog-actions">
+        <button class="button secondary" value="cancel" autofocus>ยกเลิก</button>
+        <button class="button ${danger ? "danger-button" : "primary"}" value="confirm">${escapeHtml(confirmLabel)}</button>
+      </form>`;
+    document.body.appendChild(dialog);
+    dialog.addEventListener("close", () => {
+      const confirmed = dialog.returnValue === "confirm";
+      dialog.remove();
+      resolve(confirmed);
+    }, { once: true });
+    dialog.showModal();
+  });
 }
 
 function renderAdminTableIntoView() {
@@ -739,6 +747,7 @@ function renderAdminTableIntoView() {
   const tableWrap = document.querySelector("#adminTableWrap");
   if (!tableWrap || !lastAdminData) return;
   tableWrap.innerHTML = renderAdminTable(lastAdminData.parts, query);
+  document.querySelector("#visiblePartsCount").textContent = `${filteredAdminParts(lastAdminData.parts, query).length} parts`;
   bindPartDetailLinks();
   bindPartOrderToggles();
 }
@@ -792,16 +801,23 @@ function bindAdminSupplierFilters() {
 }
 
 function bindAdminOrderFilter() {
-  document.querySelector("#orderFilter")?.addEventListener("change", (event) => {
-    adminOrderFilter = event.currentTarget.value;
+  document.querySelectorAll("[data-order-filter]").forEach((button) => button.addEventListener("click", () => {
+    adminOrderFilter = button.dataset.orderFilter;
+    document.querySelectorAll("[data-order-filter]").forEach((tab) => {
+      const active = tab.dataset.orderFilter === adminOrderFilter;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-pressed", String(active));
+    });
     closePartDetail();
     renderAdminTableIntoView();
-  });
+  }));
 }
 function bindAdminPasswordReset() {
   document.querySelectorAll("[data-reset-role]").forEach((button) => {
     button.addEventListener("click", async () => {
       const targetRole = button.dataset.resetRole;
+      if (!await confirmAdminAction({ title: `Reset รหัสผ่าน ${vendorLabel[targetRole]}?`, message: `รหัสผ่านของ ${vendorLabel[targetRole]} จะกลับเป็น 123`, confirmLabel: "Reset รหัสผ่าน" })) return;
+      button.disabled = true;
       try {
         await api("/api/admin/reset-password", {
           method: "POST",
@@ -820,7 +836,8 @@ function bindAdminInventoryClear() {
     button.addEventListener("click", async () => {
       const targetRole = button.dataset.clearRole;
       const label = vendorLabel[targetRole];
-      if (!confirm(`Clear uploaded inventory ของ ${label}?`)) return;
+      if (!await confirmAdminAction({ title: `ล้างข้อมูล ${label}?`, message: `ลบ inventory ที่อัปโหลดของ ${label} ทั้งหมด`, confirmLabel: "ล้างข้อมูล", danger: true })) return;
+      button.disabled = true;
       try {
         await api("/api/admin/clear-upload", {
           method: "POST",
@@ -836,10 +853,17 @@ function bindAdminInventoryClear() {
 
 function bindAdminOrderStatusReset() {
   document.querySelector("#resetOrderStatusBtn")?.addEventListener("click", async () => {
-    if (!confirm("Reset สถานะสั่งแล้วทั้งหมดให้กลับเป็นยังไม่สั่ง? ข้อมูล inventory จะไม่ถูกลบ")) return;
+    if (!await confirmAdminAction({
+      title: "Reset สถานะสั่งซื้อทั้งหมด?",
+      message: "เปลี่ยนทุก Part ของ Synnex, VST และ AIS กลับเป็น “ยังไม่สั่ง” รวมถึงรายการที่ซ่อนด้วยตัวกรอง",
+      note: "จำนวนสินค้า ราคา และข้อมูลอัปโหลดยังคงเดิม",
+      confirmLabel: "Reset ทั้งหมด"
+    })) return;
+    document.querySelector("#resetOrderStatusBtn").disabled = true;
 
     try {
       await api("/api/admin/reset-order-status", { method: "POST" });
+      adminOrderFilter = "all";
       adminView('<div class="status success">Reset สถานะสั่งแล้วทั้งหมดเป็นยังไม่สั่งแล้ว</div>');
     } catch (error) {
       adminView(`<div class="status error">${escapeHtml(error.message)}</div>`);
@@ -912,6 +936,8 @@ function bindCommon() {
 
   document.querySelector("#passwordForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const submit = event.currentTarget.querySelector('[type="submit"]');
+    submit.disabled = true;
     const form = new FormData(event.currentTarget);
     try {
       await api("/api/change-password", {
