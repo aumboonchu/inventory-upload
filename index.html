@@ -3,44 +3,12 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Inventory Upload</title>
-    <link rel="stylesheet" href="style.css">
+    <title>JIB Inventory workspace</title>
+    <link rel="stylesheet" href="workspace.css?v=20261020">
   </head>
-  <body>
-    <main class="home">
-      <section class="home-panel">
-        <div class="home-copy">
-          <p class="system-name">JIB Inventory Upload</p>
-          <h1>Clean supplier inventory workspace</h1>
-          <p class="lead">เลือกหน้าการทำงานตาม supplier หรือเข้าสู่ Admin เพื่อดู inventory รวม</p>
-        </div>
-        <div class="home-grid">
-          <a class="home-card primary-card" href="upload-synnex.html">
-            <span class="home-icon">S</span>
-            <strong>Synnex Upload</strong>
-            <small>ไฟล์ราคาและ stock จาก Synnex</small>
-            <em>Start Upload</em>
-          </a>
-          <a class="home-card" href="upload-vst.html">
-            <span class="home-icon">V</span>
-            <strong>VST Upload</strong>
-            <small>ไฟล์ราคาและ stock จาก VST</small>
-            <em>Start Upload</em>
-          </a>
-          <a class="home-card" href="upload-ais.html">
-            <span class="home-icon">A</span>
-            <strong>AIS Upload</strong>
-            <small>ไฟล์ราคาและ stock จาก AIS</small>
-            <em>Start Upload</em>
-          </a>
-          <a class="home-card" href="admin.html">
-            <span class="home-icon dark">JIB</span>
-            <strong>Admin</strong>
-            <small>รวม part และจัดการข้อมูล</small>
-            <em>Open Admin</em>
-          </a>
-        </div>
-      </section>
-    </main>
+  <body data-page="home" data-vendor="admin">
+    <div id="app"></div>
+    <script src="config.js"></script>
+    <script src="app.js?v=20261020"></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
 ﻿const apiBaseUrl = window.APP_CONFIG?.apiBaseUrl || "http://localhost:8787";
-const page = document.body.dataset.page;
-const role = document.body.dataset.vendor;
+const page = document.body.dataset.page || "home";
+const role = document.body.dataset.vendor || "admin";
 const vendorLabel = { synnex: "Synnex", vst: "VST", ais: "AIS", admin: "Admin" };
 const supplierKeys = ["synnex", "vst", "ais"];
 const app = document.querySelector("#app");
@@ -14,9 +14,26 @@ let partModalEventsBound = false;
 let adminSupplierFilters = { synnex: true, vst: true, ais: true };
 let adminOrderFilter = "all";
 let adminSearchQuery = "";
+let adminPageIndex = 0;
+const adminPageSize = 7;
+let lastPartTrigger = null;
+let uploadMode = "file";
+let uploadSource = { filename: "", raw: "", matched: 0, errors: [], reading: false, submitting: false, complete: false };
+let uploadReadVersion = 0;
 
 function adminIcon(name) {
-  return `<img class="admin-icon" src="assets/admin-${name}.svg" width="18" height="18" alt="">`;
+  const assets = { settings: "e7977", "settings-muted": "0d2f1", "settings-small": "f22e1", "settings-login": "94fcc", "settings-note": "8479a", download: "34023", "download-muted": "2550a", refresh: "8aabe", search: "c79ca", clock: "fa1f6", "clock-upload": "098ef" };
+  return `<span class="workspace-icon icon-${escapeHtml(name)}" aria-hidden="true"><img src="assets/fresh-${assets[name] || assets.settings}.svg" alt=""></span>`;
+}
+
+function statusMessage(message, type = "success") {
+  return `<div class="status ${type}" role="${type === "error" ? "alert" : "status"}">${escapeHtml(message)}</div>`;
+}
+
+function formatMoney(value) {
+  if (value === "" || value == null) return "—";
+  const n = Number(String(value).replace(/[,\s฿]/g, ""));
+  return Number.isFinite(n) ? `฿${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n)}` : escapeHtml(value);
 }
 
 function html(strings, ...values) {
@@ -57,68 +74,63 @@ async function api(path, options = {}) {
 }
 
 function shell(content, active = role) {
+  const isAdmin = role === "admin";
+  const links = isAdmin ? ["admin", ...supplierKeys] : [role];
+  const label = isAdmin ? "Combined inventory" : vendorLabel[role] + " upload";
   return html`
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="brand">
-          <div class="brand-mark">JIB</div>
-          <div>
-            <p class="brand-title">Inventory Upload</p>
-            <p class="brand-subtitle">${escapeHtml(vendorLabel[role])}</p>
-          </div>
-        </div>
-        <nav class="nav">
-          <a class="${active === "synnex" ? "active" : ""}" href="upload-synnex.html">Synnex</a>
-          <a class="${active === "vst" ? "active" : ""}" href="upload-vst.html">VST</a>
-          <a class="${active === "ais" ? "active" : ""}" href="upload-ais.html">AIS</a>
-          <a class="${active === "admin" ? "active" : ""}" href="admin.html">Admin</a>
-          <button class="button secondary nav-logout ${active === "admin" ? "icon-button" : ""}" id="logoutBtn" type="button" title="Logout" aria-label="Logout">${active === "admin" ? adminIcon("logout") : "Logout"}</button>
-        </nav>
-      </header>
-      <main class="page">${content}</main>
+    <div class="workspace-shell">
+      <aside class="workspace-sidebar" aria-label="พื้นที่ทำงาน">
+        <a class="workspace-brand" href="index.html"><span class="workspace-mark">JIB</span><span><strong>Inventory</strong><small>JIB WORKSPACE</small></span></a>
+        <span class="nav-caption">WORKSPACE</span>
+        <nav class="workspace-nav">${links.map((key) => `<a href="${key === "admin" ? "admin.html" : "upload-" + key + ".html"}" class="${active === key ? "active" : ""}" ${active === key ? 'aria-current="page"' : ""}>${adminIcon(key === "admin" ? "settings" : active === key ? "download" : "download-muted")}<span>${key === "admin" ? "Inventory" : vendorLabel[key]}</span></a>`).join("")}</nav>
+        <button class="workspace-account" id="logoutBtn" type="button" title="ออกจากระบบ"><span class="account-avatar">${isAdmin ? "A" : vendorLabel[role].slice(0, 1)}</span><span><strong>${escapeHtml(vendorLabel[role])}</strong><small>ออกจากระบบ</small></span></button>
+      </aside>
+      <div class="workspace-main">
+        <header class="workspace-topbar"><span>WORKSPACE</span><span class="breadcrumb-divider">/</span><strong>${escapeHtml(label)}</strong><span class="topbar-spacer"></span><span class="badge">เข้าสู่ระบบแล้ว</span><time>${new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Bangkok" }).format(new Date())}</time></header>
+        <main id="mainContent">${content}</main>
+      </div>
     </div>
   `;
 }
 
 function loginView(message = "") {
+  app.onclick = null;
+  closePartDetail();
   app.innerHTML = html`
-    <div class="login-wrap">
-      <section class="panel login-panel">
-        <div class="login-brand">
-          <div class="brand-mark">JIB</div>
-        </div>
-        <div class="panel-header compact">
-          <div>
-            <h1>${escapeHtml(vendorLabel[role])} Login</h1>
-            <p>กรอกรหัสผ่านเพื่อเข้าใช้งาน</p>
-          </div>
-        </div>
-        <form class="panel-body" id="loginForm">
-          <div class="field">
-            <label for="password">Password</label>
-            <input class="input" id="password" name="password" type="password" autocomplete="current-password" required autofocus>
-          </div>
-          <button class="button primary full" type="submit">Login</button>
-          ${message ? `<div class="status error">${escapeHtml(message)}</div>` : ""}
+    <div class="workspace-login">
+      <header class="public-header"><a href="index.html" class="public-brand"><span class="workspace-mark">JIB</span><strong>Inventory workspace</strong></a><span>JIB / Supplier portal</span></header>
+      <main class="login-center"><section class="login-form-wrap">
+        <span class="login-workspace-icon">${adminIcon("settings-login")}</span>
+        <div><h1>เข้าใช้งาน Inventory</h1><p class="login-intro">เลือกพื้นที่ทำงาน แล้วกรอกรหัสผ่านของคุณ</p></div>
+        <nav class="workspace-picker" aria-label="เลือกพื้นที่ทำงาน">${["admin", ...supplierKeys].map((key) => `<a href="${key === "admin" ? "admin.html" : "upload-" + key + ".html"}" ${role === key ? 'aria-current="page" class="active"' : ""}>${vendorLabel[key]}</a>`).join("")}</nav>
+        <form id="loginForm">
+          <div class="field"><label for="password">รหัสผ่าน ${escapeHtml(vendorLabel[role])}</label><div class="password-input"><input id="password" name="password" type="password" autocomplete="current-password" required><button id="passwordVisibility" type="button" aria-pressed="false" aria-controls="password">แสดง</button></div></div>
+          <button class="button primary full" type="submit">เข้าใช้งาน <span aria-hidden="true">→</span></button>
+          ${message ? statusMessage(message, "error") : ""}
         </form>
-      </section>
-    </div>
-  `;
-
+        <p class="login-private-note">${adminIcon("settings-note")}พื้นที่สำหรับ Admin และ Supplier ที่ได้รับสิทธิ์</p>
+      </section></main>
+      <footer class="public-footer">JIB · Inventory workspace</footer>
+    </div>`;
+  document.querySelector("#passwordVisibility").addEventListener("click", (event) => {
+    const input = document.querySelector("#password");
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    event.currentTarget.textContent = show ? "ซ่อน" : "แสดง";
+    event.currentTarget.setAttribute("aria-pressed", String(show));
+  });
   document.querySelector("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const button = event.currentTarget.querySelector('[type="submit"]');
+    button.disabled = true;
     try {
       const password = new FormData(event.currentTarget).get("password");
-      const data = await api("/api/login", {
-        method: "POST",
-        body: JSON.stringify({ role, password })
-      });
+      const data = await api("/api/login", { method: "POST", body: JSON.stringify({ role, password }) });
       token = data.token;
       localStorage.setItem(`inventory_token_${role}`, token);
-      render();
-    } catch (error) {
-      loginView(error.message);
-    }
+      if (page === "home") window.location.href = "admin.html";
+      else render();
+    } catch (error) { loginView(error.message); }
   });
 }
 function parseDelimited(text) {
@@ -235,7 +247,7 @@ function mapRows(rawRows) {
   const partIndex = hasHeader ? findIndex(["part", "partno", "partnumber", "sku", "item", "pn"], 0) : 0;
   const descriptionIndex = hasHeader ? findIndex(["description", "desc", "name", "productname", "รายละเอียด"], 1) : 1;
   const qtyIndex = hasHeader ? findIndex(["qty", "quantity", "stock", "balance", "จำนวน"], 2) : 2;
-  const priceIndex = hasHeader ? findIndex(["price", "cost", "amount", "ราคา"], 3) : 3;
+  const priceIndex = hasHeader ? findIndex(["price", "priceexvat", "cost", "costexvat", "amount", "ราคา"], 3) : 3;
 
   return dataRows
     .map((row) => ({
@@ -266,7 +278,7 @@ function rowsPreview(rows) {
               <td><strong>${escapeHtml(row.partNo)}</strong></td>
               <td>${escapeHtml(row.description)}</td>
               <td>${escapeHtml(row.qty)}</td>
-              <td>${escapeHtml(row.price)}</td>
+              <td>${formatMoney(row.price)}</td>
             </tr>
           `).join("")}
         </tbody>
@@ -277,141 +289,142 @@ function rowsPreview(rows) {
 }
 
 function uploadView(status = "") {
+  const ready = parsedRows.length > 0 && !uploadSource.errors.length && !uploadSource.reading;
+  const label = vendorLabel[role];
+  const busy = uploadSource.reading || uploadSource.submitting;
+  const checks = [
+    [parsedRows.length > 0, "Part No. ครบทุกแถว"],
+    [ready, "Qty และราคาอยู่ในรูปแบบที่ถูกต้อง"],
+    [ready, uploadSource.matched ? `ใช้ชื่อจาก Apple master part ${uploadSource.matched} rows` : "ชื่อสินค้าใช้จาก Supplier"],
+    [ready, `พร้อมแทนข้อมูลล่าสุดของ ${label}`]
+  ];
   app.innerHTML = shell(html`
-    <section class="upload-hero">
-      <p class="eyebrow">SUPPLIER WORKSPACE / ${escapeHtml(vendorLabel[role]).toUpperCase()}</p>
-      <h1>Upload inventory</h1>
-      <p>นำเข้าไฟล์ supplier แล้วตรวจข้อมูลให้พร้อมก่อนส่งเข้า Admin</p>
+    <section class="workspace-heading">
+      <div><h1>${escapeHtml(label)} upload</h1><p>นำเข้าข้อมูล ตรวจสอบ แล้วส่งเข้า Inventory</p></div>
+      <a class="button secondary" href="template-${role}.csv" download>${adminIcon("download")}ดาวน์โหลด Template</a>
     </section>
-
-    <ol class="upload-steps" aria-label="Upload progress">
-      <li class="active"><span>1</span><div><strong>Upload source</strong><small>เลือกไฟล์หรือวางข้อมูล</small></div></li>
-      <li><span>2</span><div><strong>Review preview</strong><small>ตรวจ Part No., Qty และราคา</small></div></li>
-      <li><span>3</span><div><strong>Send to Admin</strong><small>ยืนยันและแทนข้อมูลเดิม</small></div></li>
+    <ol class="workflow-steps" aria-label="Upload progress">
+      ${["เลือกข้อมูล", "ตรวจสอบ Preview", "ส่งเข้า Admin"].map((step, i) => `<li class="${(uploadSource.complete ? i === 2 : parsedRows.length ? i === 1 : i === 0) ? "active" : ""}"><span>0${i + 1}</span>${step}</li>`).join("")}
     </ol>
-
-    <div class="upload-redesign-layout">
-      <section class="upload-source-card">
-        <div class="upload-card-heading">
-          <h2>Add source data</h2>
-          <p>อัปโหลด CSV หรือวางตารางจาก Excel ได้ทันที</p>
+    <div class="upload-source-layout">
+      <section class="source-content"><div class="source-heading"><h2>Source data</h2><span class="hint">CSV / Excel</span></div>
+        <div class="source-tabs" role="group" aria-label="วิธีนำเข้าข้อมูล">
+          <button type="button" data-source-mode="file" aria-pressed="${uploadMode === "file"}" class="${uploadMode === "file" ? "active" : ""}" ${busy ? "disabled" : ""}>อัปโหลดไฟล์</button>
+          <button type="button" data-source-mode="paste" aria-pressed="${uploadMode === "paste"}" class="${uploadMode === "paste" ? "active" : ""}" ${busy ? "disabled" : ""}>วางข้อมูลจาก Excel</button>
         </div>
-
-        <div class="template-strip">
-          <div>
-            <strong>Use the current template</strong>
-            <span>Part No., Description, Qty, Price (ex VAT)</span>
+        <div class="file-dropzone ${uploadSource.reading ? "reading" : ""}" id="csvDropzone" ${uploadMode === "file" ? "" : "hidden"}>
+          <div class="selected-file"><span class="file-format">CSV</span><div class="file-info"><strong>${uploadSource.reading ? "กำลังอ่านไฟล์…" : escapeHtml(uploadSource.filename || "เลือกไฟล์ CSV")}</strong><span>${parsedRows.length ? `${parsedRows.length} rows · ${ready ? "พร้อมตรวจสอบข้อมูล" : "พบข้อมูลที่ต้องแก้ไข"}` : "ลากไฟล์มาวาง หรือเลือกไฟล์"}</span></div>
+            <label class="button secondary ${busy ? "disabled" : ""}" for="csvFile">${adminIcon("refresh")}${uploadSource.filename ? "เปลี่ยนไฟล์" : "เลือกไฟล์"}</label>
           </div>
-          <a class="button secondary" href="template-${role}.csv" download>Download template</a>
+          <input id="csvFile" type="file" accept=".csv,text/csv" ${busy ? "disabled" : ""} aria-label="เลือกไฟล์ CSV">
+          <div class="read-progress ${parsedRows.length ? "complete" : ""}" aria-hidden="true"></div>
+          <p class="file-read-status">${uploadSource.reading ? "กำลังตรวจข้อมูล" : ready ? "✓ อ่านไฟล์สำเร็จ" : "Part No., Description, Qty, Price (ex VAT)"}</p>
         </div>
-
-        <div class="file-dropzone">
-          <img class="upload-icon" src="assets/upload.svg" alt="" aria-hidden="true">
-          <div>
-            <strong>Drop CSV here or choose a file</strong>
-            <span>ไฟล์ใหม่จะแทนข้อมูลเดิมของ ${escapeHtml(vendorLabel[role])} หลังจากยืนยัน upload</span>
-          </div>
-          <input id="csvFile" type="file" accept=".csv,text/csv">
-          <label class="button primary" for="csvFile">Choose CSV</label>
-        </div>
-
-        <label class="paste-field" for="pasteBox">
-          <span>หรือวางข้อมูลจาก Excel / CSV</span>
-          <textarea id="pasteBox" placeholder="วางข้อมูลที่นี่"></textarea>
-        </label>
+        <div class="paste-input-wrap" ${uploadMode === "paste" ? "" : "hidden"}><label class="visually-hidden" for="pasteBox">ข้อมูลจาก Excel / CSV</label><textarea id="pasteBox" placeholder="วางข้อมูลจาก Excel / CSV" ${busy ? "disabled" : ""}>${escapeHtml(uploadSource.raw)}</textarea><button class="button secondary" id="parsePasteBtn" type="button" ${busy ? "disabled" : ""}>ตรวจสอบข้อมูล</button></div>
+        <p class="source-columns">Part No. · Description · Qty · Price (ex VAT)</p>
       </section>
-
-      <aside class="upload-side-stack">
-        <section class="data-check-card">
-          <h2>Data check</h2>
-          <p>ตรวจให้ครบก่อนสร้าง preview</p>
-          <div class="data-fields">
-            <span>Part No.</span><span>Description</span><span>Qty</span><span>Price (ex VAT)</span>
-          </div>
-          <div class="master-part-note">
-            <strong>Apple master part</strong>
-            <span>ถ้าพบ Part No. ในรายการกลาง ระบบจะใช้ชื่อสินค้านั้นก่อน</span>
-          </div>
-        </section>
-
-        <details class="account-settings-card">
-          <summary>
-            <div>
-              <h2>Account settings</h2>
-              <p>เปลี่ยนรหัสผ่านสำหรับ ${escapeHtml(vendorLabel[role])} โดยไม่รบกวนขั้นตอน upload</p>
-            </div>
-            <span class="button secondary">Change password</span>
-          </summary>
-          <form id="passwordForm" class="account-password-form">
-            <div class="field">
-              <label>Current password</label>
-              <input class="input" name="currentPassword" type="password" required>
-            </div>
-            <div class="field">
-              <label>New password</label>
-              <input class="input" name="newPassword" type="password" minlength="3" required>
-            </div>
-            <button class="button warning full" type="submit">Change password</button>
-          </form>
-        </details>
-      </aside>
+      <aside class="upload-validation"><section class="validation-summary">
+        <div class="source-heading"><h2>ตรวจข้อมูล</h2><span class="badge">${ready ? "ผ่าน 4/4" : "รอตรวจสอบ"}</span></div>
+        <ul>${checks.map(([ok, text]) => `<li class="${ok ? "valid" : ""}"><span aria-hidden="true">${ok ? "✓" : "○"}</span>${escapeHtml(text)}</li>`).join("")}</ul>
+      </section><button class="password-action" id="supplierPasswordBtn" type="button">${adminIcon("settings-small")}เปลี่ยนรหัสผ่าน ${escapeHtml(label)}<span aria-hidden="true">→</span></button></aside>
     </div>
-
-    ${status}
-
-    <section class="preview-card">
-      <div class="preview-card-header">
-        <div>
-          <h2>Review preview</h2>
-          <p>ตรวจข้อมูลก่อนส่งเข้า Admin</p>
-        </div>
-        <div class="preview-actions">
-          <span class="hint">${parsedRows.length} rows ready</span>
-          <button class="button secondary" id="parsePasteBtn" type="button">Preview data</button>
-          <button class="button primary" id="uploadBtn" type="button" ${parsedRows.length ? "" : "disabled"}>Upload to ${escapeHtml(vendorLabel[role])}</button>
-        </div>
-      </div>
-      <div class="preview-card-body">${rowsPreview(parsedRows)}</div>
+    <section class="upload-review">
+      ${status}
+      ${uploadSource.errors.length ? statusMessage(uploadSource.errors.join(" · "), "error") : ""}
+      <div class="review-heading"><h2>Preview</h2><span class="badge">${parsedRows.length} rows ${ready ? "พร้อมส่ง" : ""}</span><button class="button primary" id="uploadBtn" type="button" ${!ready || busy ? "disabled" : ""}>${adminIcon("download")}${uploadSource.submitting ? "กำลังส่งข้อมูล…" : "ส่งข้อมูลเข้า Admin"}</button></div>
+      ${rowsPreview(parsedRows)}
+      <p class="replacement-note">${adminIcon("clock-upload")}ข้อมูลใหม่นี้จะแทนที่ Inventory เดิมของ ${escapeHtml(label)} หลังยืนยัน</p>
     </section>
+    ${passwordDialogMarkup("supplierPasswordDialog", label)}
   `, role);
-
   bindCommon();
-  document.querySelector("#csvFile").addEventListener("change", async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const text = await readUploadText(file);
-    await loadMasterParts();
-    const result = applyMasterParts(mapRows(parseDelimited(text)));
-    parsedRows = result.rows;
-    uploadView(`<div class="status success">อ่านไฟล์ ${escapeHtml(file.name)} ได้ ${parsedRows.length} rows ใช้ชื่อจาก partApple ${result.matched} rows</div>`);
+  bindPasswordDialog("#supplierPasswordBtn", "#supplierPasswordDialog");
+  document.querySelectorAll("[data-source-mode]").forEach((button) => button.addEventListener("click", () => {
+    uploadMode = button.dataset.sourceMode;
+    uploadReadVersion++;
+    parsedRows = [];
+    uploadSource = { ...uploadSource, filename: "", raw: "", matched: 0, errors: [], complete: false };
+    uploadView();
+  }));
+  document.querySelector("#csvFile").addEventListener("change", (event) => { if (event.target.files[0]) parseUploadSource(event.target.files[0]); });
+  const drop = document.querySelector("#csvDropzone");
+  drop.addEventListener("dragover", (event) => { event.preventDefault(); if (!busy) drop.classList.add("dragging"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("dragging"));
+  drop.addEventListener("drop", (event) => { event.preventDefault(); drop.classList.remove("dragging"); if (!busy && event.dataTransfer.files[0]) parseUploadSource(event.dataTransfer.files[0]); });
+  document.querySelector("#pasteBox").addEventListener("input", (event) => {
+    uploadSource.raw = event.currentTarget.value;
+    parsedRows = [];
+    uploadSource.errors = [];
+    uploadSource.complete = false;
+    document.querySelector("#uploadBtn").disabled = true;
+    document.querySelector(".review-heading .badge").textContent = "กรุณาตรวจสอบข้อมูลใหม่";
+    document.querySelector(".preview-table")?.remove();
+    document.querySelector(".validation-summary .badge").textContent = "รอตรวจสอบ";
+    document.querySelectorAll(".validation-summary li").forEach((li) => { li.classList.remove("valid"); li.firstElementChild.textContent = "○"; });
   });
-
-  document.querySelector("#parsePasteBtn").addEventListener("click", async () => {
-    const text = document.querySelector("#pasteBox").value;
-    await loadMasterParts();
-    const result = applyMasterParts(mapRows(parseDelimited(text)));
-    parsedRows = result.rows;
-    uploadView(`<div class="status success">อ่านข้อมูล pasted ได้ ${parsedRows.length} rows ใช้ชื่อจาก partApple ${result.matched} rows</div>`);
-  });
-
+  document.querySelector("#parsePasteBtn").addEventListener("click", () => parseUploadSource());
   document.querySelector("#uploadBtn").addEventListener("click", async () => {
+    if (!ready || busy) return;
+    const rows = parsedRows.map(({ partNo, description, qty, price }) => ({ partNo, description, qty, price }));
+    if (!await confirmAdminAction({ title: `ส่งข้อมูล ${label} เข้า Admin?`, message: `ใช้ข้อมูล ${rows.length} rows แทน Inventory ล่าสุดของ ${label}`, confirmLabel: "ยืนยัน Upload" })) return;
+    uploadSource.submitting = true;
+    uploadView();
     try {
-      const data = await api("/api/upload", {
-        method: "POST",
-        body: JSON.stringify({ vendor: role, filename: "browser upload", rows: parsedRows })
-      });
-      uploadView(`<div class="status success">Upload สำเร็จ ${data.count} rows ตอนนี้ admin มี part รวม ${data.combinedCount} รายการ</div>`);
+      const data = await api("/api/upload", { method: "POST", body: JSON.stringify({ vendor: role, filename: uploadSource.filename || "pasted data", rows }) });
+      uploadSource.submitting = false;
+      uploadSource.complete = true;
+      uploadView(statusMessage(`อัปโหลดสำเร็จ ${data.count} rows ของ ${label}`));
     } catch (error) {
-      uploadView(`<div class="status error">${escapeHtml(error.message)}</div>`);
+      uploadSource.submitting = false;
+      if (error.message === "Unauthorized") { token = ""; localStorage.removeItem(`inventory_token_${role}`); return loginView("หมดเวลาการเข้าใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง"); }
+      uploadView(statusMessage(error.message, "error"));
     }
   });
+}
+
+function passwordDialogMarkup(id, label) {
+  return `<dialog class="admin-dialog" id="${id}" aria-labelledby="${id}Title"><h2 id="${id}Title">เปลี่ยนรหัสผ่าน ${escapeHtml(label)}</h2><form id="passwordForm"><div class="field"><label for="currentPassword">Current password</label><input class="input" id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="newPassword">New password</label><input class="input" id="newPassword" name="newPassword" type="password" autocomplete="new-password" minlength="3" required></div><div class="dialog-actions"><button class="button secondary" type="button" data-dialog-cancel>ยกเลิก</button><button class="button primary" type="submit">เปลี่ยนรหัสผ่าน</button></div></form></dialog>`;
+}
+
+function bindPasswordDialog(trigger, target) {
+  const dialog = document.querySelector(target);
+  document.querySelector(trigger).addEventListener("click", () => { closeAdminManagement(); dialog.showModal(); });
+  dialog.querySelector("[data-dialog-cancel]").addEventListener("click", () => dialog.close());
+}
+
+async function parseUploadSource(file) {
+  const version = ++uploadReadVersion;
+  if (file && !/\.csv$/i.test(file.name)) {
+    parsedRows = [];
+    uploadSource = { ...uploadSource, filename: file.name, errors: ["กรุณาเลือกไฟล์ CSV"], matched: 0, complete: false };
+    return uploadView();
+  }
+  parsedRows = [];
+  uploadSource = { ...uploadSource, reading: true, complete: false, errors: [], filename: file?.name || "", matched: 0 };
+  uploadView();
+  try {
+    const raw = file ? await readUploadText(file) : uploadSource.raw;
+    await loadMasterParts();
+    if (version !== uploadReadVersion) return;
+    const result = applyMasterParts(mapRows(parseDelimited(raw)));
+    parsedRows = result.rows;
+    uploadSource.matched = result.matched;
+    if (!parsedRows.length) uploadSource.errors.push("ไม่พบข้อมูล Part No.");
+    const invalid = parsedRows.findIndex((row) => ["qty", "price"].some((key) => {
+      const value = String(row[key] ?? "").trim();
+      return value && (!Number.isFinite(Number(value.replace(/[,\s฿]/g, ""))) || Number(value.replace(/[,\s฿]/g, "")) < 0);
+    }));
+    if (invalid >= 0) uploadSource.errors.push(`Qty หรือ Price ไม่ถูกต้องที่รายการ ${invalid + 1}`);
+  } catch (error) { uploadSource.errors = [error.message]; }
+  uploadSource.reading = false;
+  uploadView();
 }
 function vendorCell(data, part, supplier) {
   if (!data) return `<span class="empty">-</span>`;
   const ordered = Boolean(part.orders?.[supplier]);
   return html`
     <div class="vendor-cell">
-      <div class="vendor-values"><strong>${escapeHtml(data.qty ?? "-")}</strong><span>${data.price !== "" && data.price != null ? `฿${escapeHtml(data.price)}` : "-"}</span></div>
+      <div class="vendor-values"><strong>${escapeHtml(data.qty ?? "—")}</strong><span>${formatMoney(data.price)}</span></div>
       <label class="vendor-order-control">
         <input
           class="supplier-order-toggle"
@@ -427,71 +440,43 @@ function vendorCell(data, part, supplier) {
   `;
 }
 
-function partDetailSupplierCard(label, data) {
-  return html`
-    <article class="part-supplier-card">
-      <h4>${escapeHtml(label)}</h4>
-      <div class="part-supplier-values">
-        <div>
-          <span>Qty</span>
-          <strong class="${data ? "" : "empty"}">${escapeHtml(data?.qty || "-")}</strong>
-        </div>
-        <div>
-          <span>Price (ex VAT)</span>
-          <strong class="${data ? "" : "empty"}">${escapeHtml(data?.price || "-")}</strong>
-        </div>
-      </div>
-    </article>
-  `;
+function partDetailSupplierCard(supplier, part) {
+  const data = part[supplier];
+  const ordered = Boolean(part.orders?.[supplier]);
+  return `<article class="part-supplier-card ${ordered ? "ordered" : ""} ${data ? "" : "unavailable"}"><div class="part-supplier-heading"><h3>${vendorLabel[supplier]}</h3>${data ? `<span class="badge ${ordered ? "" : "badge-muted"}">${ordered ? "✓ สั่งแล้ว" : "ยังไม่สั่ง"}</span>` : '<span class="hint">ยังไม่มีข้อมูล</span>'}</div>
+    ${data ? `<div class="part-supplier-values"><strong>${escapeHtml(data.qty ?? "—")}</strong><span>หน่วย</span><strong class="detail-price">${formatMoney(data.price)}</strong></div><p>Price (ex VAT)</p>` : ""}
+    </article>`;
 }
 
 function partDetailModal(part) {
-  const activeSuppliers = getActiveAdminSuppliers();
-  return html`
-    <div class="modal-backdrop" data-modal-close>
-      <section class="part-modal" role="dialog" aria-modal="true" aria-labelledby="partModalTitle">
-        <button class="modal-close" data-modal-close type="button" aria-label="Close part detail">×</button>
-        <div class="part-modal-head">
-          <h2 id="partModalTitle">${escapeHtml(part.partNo)}</h2>
-          <p>${escapeHtml(part.description || "-")}</p>
-        </div>
-
-        <div class="part-detail-grid">
-          <div>
-            <span>Part No.</span>
-            <strong>${escapeHtml(part.partNo)}</strong>
-          </div>
-          <div>
-            <span>Description</span>
-            <strong>${escapeHtml(part.description || "-")}</strong>
-          </div>
-        </div>
-
-        <div class="part-supplier-section">
-          <h3>Supplier inventory</h3>
-          <div class="part-supplier-grid supplier-count-${activeSuppliers.length}">
-            ${activeSuppliers.map((supplier) => partDetailSupplierCard(vendorLabel[supplier], part[supplier])).join("")}
-          </div>
-        </div>
-
-        <p class="part-modal-note">ข้อมูลแสดงจาก record ที่ upload ล่าสุดของแต่ละ supplier</p>
-      </section>
-    </div>
-  `;
+  const state = orderStateFor(part);
+  return `<dialog class="part-modal" aria-labelledby="partModalTitle">
+    <div class="part-modal-toolbar"><span class="badge">PART DETAIL</span><button class="button secondary icon-button" data-modal-close type="button" aria-label="Close part detail">×</button></div>
+    <h2 id="partModalTitle">${escapeHtml(part.description || part.partNo)}</h2>
+    <div class="part-identifier"><span>PART NO.</span><strong>${escapeHtml(part.partNo)}</strong></div>
+    <div class="part-order-summary"><span class="badge ${state.key === "partial" ? "badge-amber" : state.key === "pending" ? "badge-muted" : ""}">${state.label}</span><span class="hint">${escapeHtml(state.detail)}</span></div>
+    <div class="part-supplier-grid">${getActiveAdminSuppliers().map((supplier) => partDetailSupplierCard(supplier, part)).join("")}</div>
+    <p class="part-modal-note">อัปเดต ${escapeHtml(formatDateTime(lastAdminData?.updatedAt))}</p>
+    </dialog>`;
 }
 
 function showPartDetail(partNo) {
   const part = lastAdminData?.parts?.find((item) => item.partNo === partNo);
   if (!part) return;
-  document.querySelector(".modal-backdrop")?.remove();
+  closePartDetail();
+  lastPartTrigger = document.activeElement;
   document.body.insertAdjacentHTML("beforeend", partDetailModal(part));
-  document.body.classList.add("modal-open");
-  document.querySelector(".modal-close")?.focus();
+  const dialog = document.querySelector(".part-modal");
+  dialog.querySelector("[data-modal-close]").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("close", () => { dialog.remove(); lastPartTrigger?.focus(); }, { once: true });
+  dialog.addEventListener("click", (event) => { if (event.target !== dialog) return; const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close(); });
+  dialog.showModal();
 }
 
 function closePartDetail() {
-  document.querySelector(".modal-backdrop")?.remove();
-  document.body.classList.remove("modal-open");
+  const dialog = document.querySelector(".part-modal");
+  if (dialog?.open) dialog.close();
+  else dialog?.remove();
 }
 
 function bindPartDetailLinks() {
@@ -563,70 +548,59 @@ function supplierFilterControls() {
 }
 
 function renderAdminTable(parts, query = "") {
-  const activeSuppliers = getActiveAdminSuppliers();
-  return html`
-    <table class="supplier-visible-${activeSuppliers.length}">
-      <thead>
-        <tr>
-          <th class="order-column" scope="col">สถานะสั่งซื้อ</th>
-          <th class="part-column" scope="col">Part No.</th>
-          <th class="description-column" scope="col">Description</th>
-          ${activeSuppliers.map((supplier) => `<th class="supplier-column" scope="col">${escapeHtml(vendorLabel[supplier])}<small>Qty / Price (ex VAT)</small></th>`).join("")}
-        </tr>
-      </thead>
-      <tbody id="adminBody">${adminRows(parts, query, activeSuppliers)}</tbody>
-    </table>
-  `;
+  const suppliers = getActiveAdminSuppliers();
+  return `<table class="supplier-visible-${suppliers.length}"><thead><tr>
+    <th class="part-column" scope="col">Part No. / สถานะ</th><th class="description-column" scope="col">Description</th>
+    ${suppliers.map((supplier) => `<th class="supplier-column" scope="col">${vendorLabel[supplier]}<small>Qty · Price ex VAT</small></th>`).join("")}
+    </tr></thead><tbody id="adminBody">${adminRows(parts, query, suppliers)}</tbody></table>`;
 }
 
 function filteredAdminParts(parts, query = "") {
   const q = query.trim().toUpperCase();
-  return parts
-    .filter((part) => !q || part.partNo.includes(q) || (part.description || "").toUpperCase().includes(q))
+  const suppliers = getActiveAdminSuppliers();
+  return parts.filter((part) => suppliers.some((supplier) => part[supplier]))
+    .filter((part) => !q || part.partNo.toUpperCase().includes(q) || (part.description || "").toUpperCase().includes(q))
     .filter((part) => adminOrderFilter === "all" || orderStateFor(part).key === adminOrderFilter);
 }
 
 function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
   const rows = filteredAdminParts(parts, query);
-  if (!rows.length) return `<tr><td class="inventory-empty" colspan="${3 + suppliers.length}">ไม่พบรายการสินค้า</td></tr>`;
-  return rows
-    .map((part) => html`
-      <tr class="inventory-row state-${orderStateFor(part).key}">
-        <td class="order-cell">
-          ${orderStateCell(part)}
-        </td>
-        <td>
-          <button class="part-link" data-part-no="${escapeHtml(part.partNo)}" type="button">
-            ${escapeHtml(part.partNo)}
-          </button>
-        </td>
-        <td>${escapeHtml(part.description || "")}</td>
-        ${suppliers.map((supplier) => `<td>${vendorCell(part[supplier], part, supplier)}</td>`).join("")}
-      </tr>
-    `).join("");
+  const maxPage = Math.max(0, Math.ceil(rows.length / adminPageSize) - 1);
+  adminPageIndex = Math.min(adminPageIndex, maxPage);
+  if (!rows.length) return `<tr><td class="inventory-empty" colspan="${2 + suppliers.length}">ไม่พบรายการสินค้า</td></tr>`;
+  return rows.slice(adminPageIndex * adminPageSize, (adminPageIndex + 1) * adminPageSize).map((part) => {
+    const available = suppliers.filter((supplier) => part[supplier]).length;
+    return `<tr class="inventory-row state-${orderStateFor(part).key}" style="--supplier-count:${Math.max(available, 1)}">
+      <td class="part-cell"><button class="part-link" data-part-no="${escapeHtml(part.partNo)}" type="button">${escapeHtml(part.partNo)}</button>${orderStateCell(part)}</td>
+      <td class="description-cell">${escapeHtml(part.description || "—")}</td>
+      ${suppliers.map((supplier) => `<td class="supplier-cell ${part[supplier] ? "" : "no-inventory"}" data-supplier="${vendorLabel[supplier]}">${vendorCell(part[supplier], part, supplier)}</td>`).join("")}
+    </tr>`;
+  }).join("");
+}
+
+function paginationMarkup(parts) {
+  const count = filteredAdminParts(parts, adminSearchQuery).length;
+  return `<div class="pagination"><span id="paginationLabel">${count ? `แสดง ${adminPageIndex * adminPageSize + 1}–${Math.min((adminPageIndex + 1) * adminPageSize, count)} จาก ${count} parts` : "0 parts"}</span><button class="button secondary icon-button" id="previousPageBtn" type="button" title="หน้าก่อนหน้า" aria-label="หน้าก่อนหน้า" ${adminPageIndex === 0 ? "disabled" : ""}>←</button><button class="button secondary icon-button" id="nextPageBtn" type="button" title="หน้าถัดไป" aria-label="หน้าถัดไป" ${(adminPageIndex + 1) * adminPageSize >= count ? "disabled" : ""}>→</button></div>`;
+}
+
+function updateAdminCounts() {
+  if (!lastAdminData) return;
+  const count = filteredAdminParts(lastAdminData.parts, adminSearchQuery).length;
+  document.querySelector("#visiblePartsCount").textContent = `${count} parts`;
+  document.querySelector("#paginationLabel").textContent = count ? `แสดง ${adminPageIndex * adminPageSize + 1}–${Math.min((adminPageIndex + 1) * adminPageSize, count)} จาก ${count} parts` : "0 parts";
+  document.querySelector("#previousPageBtn").disabled = adminPageIndex === 0;
+  document.querySelector("#nextPageBtn").disabled = (adminPageIndex + 1) * adminPageSize >= count;
+  const counts = { all: lastAdminData.parts.length, pending: 0, partial: 0, complete: 0 };
+  lastAdminData.parts.forEach((part) => { const key = orderStateFor(part).key; if (key in counts) counts[key]++; });
+  Object.entries(counts).forEach(([key, value]) => { const el = document.querySelector(`[data-order-count="${key}"]`); if (el) el.textContent = value; });
 }
 
 function latestUploadsView(uploads) {
-  return html`
-    <section class="latest-strip">
-      <div class="section-title">
-        <h2>Latest uploads</h2>
-        <span class="hint">เวลาประเทศไทย</span>
-      </div>
-      <div class="latest-grid">
-        ${supplierKeys.map((supplier) => {
-          const upload = uploads.find((item) => item.vendor === supplier);
-          return html`
-          <article class="latest-card latest-${supplier}">
-            <div class="latest-info"><h3>${escapeHtml(vendorLabel[supplier])}</h3>
-            <span>${upload ? escapeHtml(formatDateTime(upload.uploadedAt)) : "ยังไม่มีข้อมูล"}</span>
-            <small>${upload ? escapeHtml(upload.filename || "browser upload") : "รอการอัปโหลด"}</small></div>
-            <div class="latest-count"><strong>${escapeHtml(upload?.count ?? 0)}</strong><span>rows</span></div>
-          </article>
-        `; }).join("")}
-      </div>
-    </section>
-  `;
+  return `<section class="latest-strip"><div class="section-title"><h2>Latest uploads</h2><span class="hint">เวลาประเทศไทย</span></div><div class="latest-grid">
+    ${supplierKeys.map((supplier) => {
+      const upload = uploads.find((item) => item.vendor === supplier);
+      return `<article class="latest-card latest-${supplier}"><span class="supplier-mark">${supplier === "synnex" ? "S" : vendorLabel[supplier]}</span><div class="latest-info"><h3>${vendorLabel[supplier]}</h3><span>${upload ? escapeHtml(formatDateTime(upload.uploadedAt)) : "รอการอัปโหลด"}</span></div><div class="latest-count"><strong>${escapeHtml(upload?.count ?? 0)}</strong><span>rows</span></div></article>`;
+    }).join("")}</div></section>`;
 }
 async function loadAdmin() {
   lastAdminData = await api("/api/admin/parts");
@@ -635,79 +609,44 @@ async function loadAdmin() {
 
 async function adminView(status = "") {
   let data;
-  try {
-    data = await loadAdmin();
-  } catch (error) {
-    if (error.message === "Unauthorized") return loginView();
-    status = `<div class="status error">${escapeHtml(error.message)}</div>`;
+  try { data = await loadAdmin(); }
+  catch (error) {
+    if (error.message === "Unauthorized") { token = ""; localStorage.removeItem("inventory_token_admin"); return loginView("หมดเวลาการเข้าใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง"); }
+    status = statusMessage(error.message, "error");
     data = lastAdminData || { parts: [], uploads: [] };
   }
-
   app.innerHTML = shell(html`
-    <section class="page-hero admin-hero">
-      <div><h1>Combined Inventory</h1><p>${data.parts.length} parts / Synnex · VST · AIS</p></div>
-      <div class="actions hero-actions">
-        <button class="button secondary icon-button" id="refreshBtn" type="button" title="Refresh" aria-label="Refresh">${adminIcon("refresh")}</button>
-        <button class="button primary" id="exportBtn" type="button">${adminIcon("download")}Export CSV</button>
-      </div>
-    </section>
-    <section class="admin-overview">${latestUploadsView(data.uploads)}</section>
+    <section class="workspace-heading"><div><h1>Combined inventory</h1><p>สต็อกล่าสุดจากทุก Supplier ในมุมมองเดียว</p></div><div class="heading-actions"><button class="button secondary icon-button" id="refreshBtn" type="button" title="Refresh" aria-label="Refresh">${adminIcon("refresh")}</button><button class="button primary" id="exportBtn" type="button">${adminIcon("download")}Export CSV</button></div></section>
+    <section class="order-summary" aria-label="สรุปสถานะสั่งซื้อ">${[["all", "Part ทั้งหมด"], ["pending", "ยังไม่สั่ง"], ["partial", "สั่งบาง Supplier"], ["complete", "สั่งครบแล้ว"]].map(([key, label]) => `<div class="summary-${key}"><strong data-order-count="${key}">${key === "all" ? data.parts.length : data.parts.filter((p) => orderStateFor(p).key === key).length}</strong><span>${label}</span></div>`).join("")}</section>
+    ${latestUploadsView(data.uploads)}
     <section class="admin-workspace">
-      <div class="admin-toolbar">
-        <label class="admin-search">${adminIcon("search")}<input id="searchBox" type="search" aria-label="ค้นหา Part No. / ชื่อสินค้า" placeholder="ค้นหา Part No. / ชื่อสินค้า" value="${escapeHtml(adminSearchQuery)}"></label>
-        <div class="admin-filter-actions">
-          <span class="supplier-caption">Supplier</span>${supplierFilterControls()}
-          <details class="tool-menu admin-management" id="adminManagement">
-            <summary class="button secondary">${adminIcon("settings")}จัดการ${adminIcon("down")}</summary>
-            <div class="tool-menu-list">
-              <span class="menu-heading">สถานะสั่งซื้อ</span>
-              <button class="menu-action reset-orders" id="resetOrderStatusBtn" type="button">Reset สั่งแล้วทั้งหมด</button>
-              <hr><span class="menu-heading">รหัสผ่าน</span>
-              <button class="menu-action" id="adminPasswordBtn" type="button">เปลี่ยนรหัสผ่าน Admin</button>
-              ${supplierKeys.map((supplier) => `<button class="menu-action" data-reset-role="${supplier}" type="button">Reset รหัสผ่าน ${vendorLabel[supplier]}</button>`).join("")}
-              <hr><span class="menu-heading">ล้าง Inventory</span>
-              ${supplierKeys.map((supplier) => `<button class="menu-action danger" data-clear-role="${supplier}" type="button">ล้างข้อมูล ${vendorLabel[supplier]}</button>`).join("")}
-            </div>
-          </details>
-        </div>
+      <div class="admin-toolbar"><label class="admin-search">${adminIcon("search")}<input id="searchBox" type="search" aria-label="ค้นหา Part No. / ชื่อสินค้า" placeholder="ค้นหา Part No. หรือชื่อสินค้า" value="${escapeHtml(adminSearchQuery)}"></label>
+        <div class="admin-filter-actions">${supplierFilterControls()}<details class="tool-menu admin-management" id="adminManagement"><summary class="button secondary">${adminIcon("settings")}จัดการ</summary>
+          <div class="tool-menu-list"><span class="menu-heading">สถานะสั่งซื้อ</span><button class="menu-action reset-orders" id="resetOrderStatusBtn" type="button">Reset สั่งแล้วทั้งหมด</button><hr><span class="menu-heading">รหัสผ่าน</span><button class="menu-action" id="adminPasswordBtn" type="button">เปลี่ยนรหัสผ่าน Admin</button>
+          ${supplierKeys.map((supplier) => `<button class="menu-action" data-reset-role="${supplier}" type="button">Reset รหัสผ่าน ${vendorLabel[supplier]}</button>`).join("")}
+          <hr><span class="menu-heading">ล้าง Inventory</span>${supplierKeys.map((supplier) => `<button class="menu-action danger" data-clear-role="${supplier}" type="button">ล้างข้อมูล ${vendorLabel[supplier]}</button>`).join("")}</div>
+        </details></div>
       </div>
       <div class="admin-order-bar">${orderFilterControl()}<span id="visiblePartsCount" class="hint">${filteredAdminParts(data.parts, adminSearchQuery).length} parts</span></div>
       ${status}
       <div class="table-wrap admin-table" id="adminTableWrap" tabindex="0" role="region" aria-label="ตาราง inventory">${renderAdminTable(data.parts, adminSearchQuery)}</div>
-      <div class="admin-footer"><span>${adminIcon("clock")}Updated: ${escapeHtml(formatDateTime(data.updatedAt))}</span><span>Price (ex VAT)</span></div>
+      <div class="admin-footer"><span>${adminIcon("clock")}อัปเดตล่าสุด ${escapeHtml(formatDateTime(data.updatedAt))}</span>${paginationMarkup(data.parts)}</div>
     </section>
-    <dialog class="admin-dialog" id="adminPasswordDialog" aria-labelledby="adminPasswordTitle">
-      <h2 id="adminPasswordTitle">เปลี่ยนรหัสผ่าน Admin</h2>
-      <form id="passwordForm">
-        <div class="field"><label for="adminCurrentPassword">Current password</label><input class="input" id="adminCurrentPassword" name="currentPassword" type="password" autocomplete="current-password" required></div>
-        <div class="field"><label for="adminNewPassword">New password</label><input class="input" id="adminNewPassword" name="newPassword" type="password" autocomplete="new-password" minlength="3" required></div>
-        <div class="dialog-actions"><button class="button secondary" type="button" data-dialog-cancel>ยกเลิก</button><button class="button primary" type="submit">เปลี่ยนรหัสผ่าน</button></div>
-      </form>
-    </dialog>
+    ${passwordDialogMarkup("adminPasswordDialog", "Admin")}
   `, "admin");
-
   bindCommon();
   bindAdminPasswordReset();
   bindAdminInventoryClear();
   bindAdminOrderStatusReset();
-  document.querySelector("#refreshBtn").addEventListener("click", () => adminView());
+  document.querySelector("#refreshBtn").addEventListener("click", async (event) => { event.currentTarget.disabled = true; await adminView(); });
   bindAdminSupplierFilters();
   bindAdminOrderFilter();
-  document.querySelector("#searchBox").addEventListener("input", (event) => {
-    adminSearchQuery = event.currentTarget.value;
-    renderAdminTableIntoView();
-  });
+  document.querySelector("#searchBox").addEventListener("input", (event) => { adminSearchQuery = event.currentTarget.value; adminPageIndex = 0; renderAdminTableIntoView(); });
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
-  const passwordDialog = document.querySelector("#adminPasswordDialog");
-  document.querySelector("#adminPasswordBtn").addEventListener("click", () => {
-    closeAdminManagement();
-    passwordDialog.showModal();
-  });
-  passwordDialog.querySelector("[data-dialog-cancel]").addEventListener("click", () => passwordDialog.close());
+  bindPasswordDialog("#adminPasswordBtn", "#adminPasswordDialog");
+  for (const [selector, delta] of [["#previousPageBtn", -1], ["#nextPageBtn", 1]]) document.querySelector(selector).addEventListener("click", () => { adminPageIndex += delta; renderAdminTableIntoView(); document.querySelector("#adminTableWrap").scrollTop = 0; });
   const menu = document.querySelector("#adminManagement");
-  menu.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") { menu.open = false; menu.querySelector("summary").focus(); }
-  });
+  menu.addEventListener("keydown", (event) => { if (event.key === "Escape") { menu.open = false; menu.querySelector("summary").focus(); } });
   app.onclick = (event) => { if (!menu.contains(event.target)) menu.open = false; };
   bindPartDetailLinks();
   bindPartOrderToggles();
@@ -747,7 +686,7 @@ function renderAdminTableIntoView() {
   const tableWrap = document.querySelector("#adminTableWrap");
   if (!tableWrap || !lastAdminData) return;
   tableWrap.innerHTML = renderAdminTable(lastAdminData.parts, query);
-  document.querySelector("#visiblePartsCount").textContent = `${filteredAdminParts(lastAdminData.parts, query).length} parts`;
+  updateAdminCounts();
   bindPartDetailLinks();
   bindPartOrderToggles();
 }
@@ -793,6 +732,7 @@ function bindAdminSupplierFilters() {
         return;
       }
       adminSupplierFilters[supplier] = checkbox.checked;
+      adminPageIndex = 0;
       checkbox.closest(".supplier-filter-option")?.classList.toggle("active", checkbox.checked);
       closePartDetail();
       renderAdminTableIntoView();
@@ -803,6 +743,7 @@ function bindAdminSupplierFilters() {
 function bindAdminOrderFilter() {
   document.querySelectorAll("[data-order-filter]").forEach((button) => button.addEventListener("click", () => {
     adminOrderFilter = button.dataset.orderFilter;
+    adminPageIndex = 0;
     document.querySelectorAll("[data-order-filter]").forEach((tab) => {
       const active = tab.dataset.orderFilter === adminOrderFilter;
       tab.classList.toggle("active", active);
@@ -864,6 +805,7 @@ function bindAdminOrderStatusReset() {
     try {
       await api("/api/admin/reset-order-status", { method: "POST" });
       adminOrderFilter = "all";
+      adminPageIndex = 0;
       adminView('<div class="status success">Reset สถานะสั่งแล้วทั้งหมดเป็นยังไม่สั่งแล้ว</div>');
     } catch (error) {
       adminView(`<div class="status error">${escapeHtml(error.message)}</div>`);
@@ -931,6 +873,9 @@ function bindCommon() {
   document.querySelector("#logoutBtn")?.addEventListener("click", () => {
     token = "";
     localStorage.removeItem(`inventory_token_${role}`);
+    parsedRows = [];
+    uploadReadVersion++;
+    uploadSource = { filename: "", raw: "", matched: 0, errors: [], reading: false, submitting: false, complete: false };
     loginView();
   });
 
@@ -959,7 +904,7 @@ function bindCommon() {
 }
 
 function render() {
-  if (!token) return loginView();
+  if (!token || page === "home") return loginView();
   if (page === "admin") return adminView();
   return uploadView();
 }
