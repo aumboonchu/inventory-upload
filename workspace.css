@@ -134,6 +134,12 @@ input, textarea { min-width: 0; }
 .order-tab { padding: 4px 0; min-height: 26px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); font-size: 12px; font-weight: 500; }
 .order-tab.active { font-weight: 700; color: var(--teal); border-color: var(--teal); }
 .admin-order-bar > .hint { white-space: nowrap; }
+.product-filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.product-filter-label { font-size: 11px; font-weight: 600; color: var(--muted); }
+.product-filter { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--canvas); border-radius: 6px; }
+.product-filter-button { min-height: 32px; padding: 6px 14px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; }
+.product-filter-button:hover { color: var(--ink); background: var(--surface); }
+.product-filter-button.active { color: var(--teal); background: var(--mint); }
 .table-wrap { overflow: auto; }
 table { border-collapse: collapse; width: 100%; text-align: left; }
 .admin-table table { min-width: 980px; table-layout: fixed; }
@@ -165,8 +171,6 @@ td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; o
 .inventory-empty { text-align: center; padding: 48px 20px; color: var(--muted); }
 .admin-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding-top: 16px; color: var(--muted); font-size: 10px; }
 .admin-footer > span { display: inline-flex; align-items: center; gap: 10px; }
-.pagination { display: flex; align-items: center; gap: 10px; }
-.pagination > span { margin-right: 4px; }
 .workflow-steps { padding: 0 32px 24px; margin: 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 24px; list-style: none; }
 .workflow-steps li { display: flex; gap: 10px; padding: 12px; align-items: center; background: var(--canvas); border-radius: 6px; font-weight: 600; font-size: 12px; color: var(--muted); }
 .workflow-steps li span { font-size: 11px; font-weight: 700; }
@@ -336,7 +340,6 @@ dialog::backdrop { background: #18221d73; backdrop-filter: blur(3px); }
   .supplier-cell .vendor-values span { font-size: 11px; }
   .vendor-order-control { min-height: 24px; font-size: 10px; }
   .admin-footer { border-top: 1px solid var(--line); gap: 14px; }
-  .pagination { flex-wrap: wrap; }
   .workflow-steps { padding: 0 20px 20px; gap: 8px; }
   .workflow-steps li { flex-direction: column; align-items: flex-start; font-size: 10px; gap: 4px; padding: 10px; }
   .upload-source-layout { padding: 24px 20px; gap: 20px; }

@@ -14,8 +14,7 @@ let partModalEventsBound = false;
 let adminSupplierFilters = { synnex: true, vst: true, ais: true };
 let adminOrderFilter = "all";
 let adminSearchQuery = "";
-let adminPageIndex = 0;
-const adminPageSize = 7;
+let adminProductFilter = "all";
 let lastPartTrigger = null;
 let uploadMode = "file";
 let uploadSource = { filename: "", raw: "", matched: 0, errors: [], reading: false, submitting: false, complete: false };
@@ -533,6 +532,20 @@ function orderFilterControl() {
   ].map(([value, label]) => `<button type="button" data-order-filter="${value}" aria-pressed="${adminOrderFilter === value}" class="order-tab ${adminOrderFilter === value ? "active" : ""}">${label}</button>`).join("")}</div>`;
 }
 
+function productGroupFor(part) {
+  const description = String(part.description || "");
+  if (/\biphone/i.test(description)) return "iphone";
+  if (/\bipad/i.test(description)) return "ipad";
+  if (/\b(?:macbook|imac|mac\b)/i.test(description)) return "mac";
+  return "other";
+}
+
+function productFilterControls() {
+  return `<div class="product-filter-bar"><span class="product-filter-label">กลุ่มสินค้า</span><div class="product-filter" role="group" aria-label="กลุ่มสินค้า">${[
+    ["all", "ทั้งหมด"], ["iphone", "iPhone"], ["ipad", "iPad"], ["mac", "Mac"]
+  ].map(([value, label]) => `<button type="button" data-product-filter="${value}" aria-pressed="${adminProductFilter === value}" class="product-filter-button ${adminProductFilter === value ? "active" : ""}">${label}</button>`).join("")}</div></div>`;
+}
+
 function supplierFilterControls() {
   return html`
     <fieldset class="supplier-filter" aria-label="Filter supplier columns">
@@ -560,15 +573,14 @@ function filteredAdminParts(parts, query = "") {
   const suppliers = getActiveAdminSuppliers();
   return parts.filter((part) => suppliers.some((supplier) => part[supplier]))
     .filter((part) => !q || part.partNo.toUpperCase().includes(q) || (part.description || "").toUpperCase().includes(q))
+    .filter((part) => adminProductFilter === "all" || productGroupFor(part) === adminProductFilter)
     .filter((part) => adminOrderFilter === "all" || orderStateFor(part).key === adminOrderFilter);
 }
 
 function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
   const rows = filteredAdminParts(parts, query);
-  const maxPage = Math.max(0, Math.ceil(rows.length / adminPageSize) - 1);
-  adminPageIndex = Math.min(adminPageIndex, maxPage);
   if (!rows.length) return `<tr><td class="inventory-empty" colspan="${2 + suppliers.length}">ไม่พบรายการสินค้า</td></tr>`;
-  return rows.slice(adminPageIndex * adminPageSize, (adminPageIndex + 1) * adminPageSize).map((part) => {
+  return rows.map((part) => {
     const available = suppliers.filter((supplier) => part[supplier]).length;
     return `<tr class="inventory-row state-${orderStateFor(part).key}" style="--supplier-count:${Math.max(available, 1)}">
       <td class="part-cell"><button class="part-link" data-part-no="${escapeHtml(part.partNo)}" type="button">${escapeHtml(part.partNo)}</button>${orderStateCell(part)}</td>
@@ -578,18 +590,16 @@ function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
   }).join("");
 }
 
-function paginationMarkup(parts) {
+function inventoryResultSummary(parts) {
   const count = filteredAdminParts(parts, adminSearchQuery).length;
-  return `<div class="pagination"><span id="paginationLabel">${count ? `แสดง ${adminPageIndex * adminPageSize + 1}–${Math.min((adminPageIndex + 1) * adminPageSize, count)} จาก ${count} parts` : "0 parts"}</span><button class="button secondary icon-button" id="previousPageBtn" type="button" title="หน้าก่อนหน้า" aria-label="หน้าก่อนหน้า" ${adminPageIndex === 0 ? "disabled" : ""}>←</button><button class="button secondary icon-button" id="nextPageBtn" type="button" title="หน้าถัดไป" aria-label="หน้าถัดไป" ${(adminPageIndex + 1) * adminPageSize >= count ? "disabled" : ""}>→</button></div>`;
+  return `<span id="inventoryResultCount">แสดงทั้งหมด ${count} parts</span>`;
 }
 
 function updateAdminCounts() {
   if (!lastAdminData) return;
   const count = filteredAdminParts(lastAdminData.parts, adminSearchQuery).length;
   document.querySelector("#visiblePartsCount").textContent = `${count} parts`;
-  document.querySelector("#paginationLabel").textContent = count ? `แสดง ${adminPageIndex * adminPageSize + 1}–${Math.min((adminPageIndex + 1) * adminPageSize, count)} จาก ${count} parts` : "0 parts";
-  document.querySelector("#previousPageBtn").disabled = adminPageIndex === 0;
-  document.querySelector("#nextPageBtn").disabled = (adminPageIndex + 1) * adminPageSize >= count;
+  document.querySelector("#inventoryResultCount").textContent = `แสดงทั้งหมด ${count} parts`;
   const counts = { all: lastAdminData.parts.length, pending: 0, partial: 0, complete: 0 };
   lastAdminData.parts.forEach((part) => { const key = orderStateFor(part).key; if (key in counts) counts[key]++; });
   Object.entries(counts).forEach(([key, value]) => { const el = document.querySelector(`[data-order-count="${key}"]`); if (el) el.textContent = value; });
@@ -627,10 +637,11 @@ async function adminView(status = "") {
           <hr><span class="menu-heading">ล้าง Inventory</span>${supplierKeys.map((supplier) => `<button class="menu-action danger" data-clear-role="${supplier}" type="button">ล้างข้อมูล ${vendorLabel[supplier]}</button>`).join("")}</div>
         </details></div>
       </div>
+      ${productFilterControls()}
       <div class="admin-order-bar">${orderFilterControl()}<span id="visiblePartsCount" class="hint">${filteredAdminParts(data.parts, adminSearchQuery).length} parts</span></div>
       ${status}
       <div class="table-wrap admin-table" id="adminTableWrap" tabindex="0" role="region" aria-label="ตาราง inventory">${renderAdminTable(data.parts, adminSearchQuery)}</div>
-      <div class="admin-footer"><span>${adminIcon("clock")}อัปเดตล่าสุด ${escapeHtml(formatDateTime(data.updatedAt))}</span>${paginationMarkup(data.parts)}</div>
+      <div class="admin-footer"><span>${adminIcon("clock")}อัปเดตล่าสุด ${escapeHtml(formatDateTime(data.updatedAt))}</span>${inventoryResultSummary(data.parts)}</div>
     </section>
     ${passwordDialogMarkup("adminPasswordDialog", "Admin")}
   `, "admin");
@@ -641,10 +652,10 @@ async function adminView(status = "") {
   document.querySelector("#refreshBtn").addEventListener("click", async (event) => { event.currentTarget.disabled = true; await adminView(); });
   bindAdminSupplierFilters();
   bindAdminOrderFilter();
-  document.querySelector("#searchBox").addEventListener("input", (event) => { adminSearchQuery = event.currentTarget.value; adminPageIndex = 0; renderAdminTableIntoView(); });
+  bindAdminProductFilter();
+  document.querySelector("#searchBox").addEventListener("input", (event) => { adminSearchQuery = event.currentTarget.value; renderAdminTableIntoView(); });
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
   bindPasswordDialog("#adminPasswordBtn", "#adminPasswordDialog");
-  for (const [selector, delta] of [["#previousPageBtn", -1], ["#nextPageBtn", 1]]) document.querySelector(selector).addEventListener("click", () => { adminPageIndex += delta; renderAdminTableIntoView(); document.querySelector("#adminTableWrap").scrollTop = 0; });
   const menu = document.querySelector("#adminManagement");
   menu.addEventListener("keydown", (event) => { if (event.key === "Escape") { menu.open = false; menu.querySelector("summary").focus(); } });
   app.onclick = (event) => { if (!menu.contains(event.target)) menu.open = false; };
@@ -732,7 +743,6 @@ function bindAdminSupplierFilters() {
         return;
       }
       adminSupplierFilters[supplier] = checkbox.checked;
-      adminPageIndex = 0;
       checkbox.closest(".supplier-filter-option")?.classList.toggle("active", checkbox.checked);
       closePartDetail();
       renderAdminTableIntoView();
@@ -743,7 +753,6 @@ function bindAdminSupplierFilters() {
 function bindAdminOrderFilter() {
   document.querySelectorAll("[data-order-filter]").forEach((button) => button.addEventListener("click", () => {
     adminOrderFilter = button.dataset.orderFilter;
-    adminPageIndex = 0;
     document.querySelectorAll("[data-order-filter]").forEach((tab) => {
       const active = tab.dataset.orderFilter === adminOrderFilter;
       tab.classList.toggle("active", active);
@@ -753,6 +762,19 @@ function bindAdminOrderFilter() {
     renderAdminTableIntoView();
   }));
 }
+function bindAdminProductFilter() {
+  document.querySelectorAll("[data-product-filter]").forEach((button) => button.addEventListener("click", () => {
+    adminProductFilter = button.dataset.productFilter;
+    document.querySelectorAll("[data-product-filter]").forEach((filter) => {
+      const active = filter.dataset.productFilter === adminProductFilter;
+      filter.classList.toggle("active", active);
+      filter.setAttribute("aria-pressed", String(active));
+    });
+    closePartDetail();
+    renderAdminTableIntoView();
+  }));
+}
+
 function bindAdminPasswordReset() {
   document.querySelectorAll("[data-reset-role]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -805,7 +827,6 @@ function bindAdminOrderStatusReset() {
     try {
       await api("/api/admin/reset-order-status", { method: "POST" });
       adminOrderFilter = "all";
-      adminPageIndex = 0;
       adminView('<div class="status success">Reset สถานะสั่งแล้วทั้งหมดเป็นยังไม่สั่งแล้ว</div>');
     } catch (error) {
       adminView(`<div class="status error">${escapeHtml(error.message)}</div>`);
