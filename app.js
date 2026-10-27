@@ -19,6 +19,7 @@ let lastPartTrigger = null;
 let uploadMode = "file";
 let uploadSource = { filename: "", raw: "", matched: 0, errors: [], reading: false, submitting: false, complete: false };
 let uploadReadVersion = 0;
+let sidebarHidden = localStorage.getItem("inventory_sidebar_hidden") === "true";
 
 function adminIcon(name) {
   const assets = { settings: "e7977", "settings-muted": "0d2f1", "settings-small": "f22e1", "settings-login": "94fcc", "settings-note": "8479a", download: "34023", "download-muted": "2550a", refresh: "8aabe", search: "c79ca", clock: "fa1f6", "clock-upload": "098ef" };
@@ -77,15 +78,15 @@ function shell(content, active = role) {
   const links = isAdmin ? ["admin", ...supplierKeys] : [role];
   const label = isAdmin ? "Combined inventory" : vendorLabel[role] + " upload";
   return html`
-    <div class="workspace-shell">
-      <aside class="workspace-sidebar" aria-label="พื้นที่ทำงาน">
+    <div class="workspace-shell ${sidebarHidden ? "sidebar-hidden" : ""}">
+      <aside class="workspace-sidebar" id="workspaceSidebar" aria-label="พื้นที่ทำงาน" ${sidebarHidden ? "hidden" : ""}>
         <a class="workspace-brand" href="index.html"><span class="workspace-mark">JIB</span><span><strong>Inventory</strong><small>JIB WORKSPACE</small></span></a>
         <span class="nav-caption">WORKSPACE</span>
         <nav class="workspace-nav">${links.map((key) => `<a href="${key === "admin" ? "admin.html" : "upload-" + key + ".html"}" class="${active === key ? "active" : ""}" ${active === key ? 'aria-current="page"' : ""}>${adminIcon(key === "admin" ? "settings" : active === key ? "download" : "download-muted")}<span>${key === "admin" ? "Inventory" : vendorLabel[key]}</span></a>`).join("")}</nav>
         <button class="workspace-account" id="logoutBtn" type="button" title="ออกจากระบบ"><span class="account-avatar">${isAdmin ? "A" : vendorLabel[role].slice(0, 1)}</span><span><strong>${escapeHtml(vendorLabel[role])}</strong><small>ออกจากระบบ</small></span></button>
       </aside>
       <div class="workspace-main">
-        <header class="workspace-topbar"><span>WORKSPACE</span><span class="breadcrumb-divider">/</span><strong>${escapeHtml(label)}</strong><span class="topbar-spacer"></span><span class="badge">เข้าสู่ระบบแล้ว</span><time>${new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Bangkok" }).format(new Date())}</time></header>
+        <header class="workspace-topbar"><button class="button secondary sidebar-toggle" id="sidebarToggle" type="button" aria-controls="workspaceSidebar" aria-expanded="${!sidebarHidden}" aria-label="${sidebarHidden ? "แสดงเมนูด้านซ้าย" : "ซ่อนเมนูด้านซ้าย"}" title="${sidebarHidden ? "แสดงเมนูด้านซ้าย" : "ซ่อนเมนูด้านซ้าย"}"><img src="assets/sidebar-${sidebarHidden ? "show" : "hide"}.svg" width="18" height="18" alt=""></button><span class="workspace-label">WORKSPACE</span><span class="breadcrumb-divider">/</span><strong>${escapeHtml(label)}</strong><span class="topbar-spacer"></span><span class="badge">เข้าสู่ระบบแล้ว</span><time>${new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Bangkok" }).format(new Date())}</time></header>
         <main id="mainContent">${content}</main>
       </div>
     </div>
@@ -891,6 +892,18 @@ function showAdminExportStatus(message, type = "success") {
 }
 
 function bindCommon() {
+  document.querySelector("#sidebarToggle")?.addEventListener("click", (event) => {
+    sidebarHidden = !sidebarHidden;
+    localStorage.setItem("inventory_sidebar_hidden", String(sidebarHidden));
+    document.querySelector(".workspace-shell").classList.toggle("sidebar-hidden", sidebarHidden);
+    document.querySelector("#workspaceSidebar").hidden = sidebarHidden;
+    const button = event.currentTarget;
+    const label = sidebarHidden ? "แสดงเมนูด้านซ้าย" : "ซ่อนเมนูด้านซ้าย";
+    button.setAttribute("aria-expanded", String(!sidebarHidden));
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.querySelector("img").src = `assets/sidebar-${sidebarHidden ? "show" : "hide"}.svg`;
+  });
   document.querySelector("#logoutBtn")?.addEventListener("click", () => {
     token = "";
     localStorage.removeItem(`inventory_token_${role}`);

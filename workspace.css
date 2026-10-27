@@ -59,6 +59,7 @@ input, textarea { min-width: 0; }
 .status.success { color: var(--teal); background: var(--mint); border: 1px solid #d6eadd; }
 .status.error { color: var(--danger); background: #fff0ed; border: 1px solid #f0d9d2; }
 .workspace-shell { display: grid; grid-template-columns: 184px minmax(0,1fr); min-height: 100dvh; background: var(--surface); }
+.workspace-shell.sidebar-hidden { grid-template-columns: minmax(0,1fr); }
 .workspace-sidebar { position: sticky; top: 0; height: 100dvh; padding: 20px; background: var(--sidebar); display: flex; flex-direction: column; gap: 8px; color: #cbd8cf; }
 .workspace-brand { display: flex; align-items: center; gap: 9px; margin-bottom: 42px; }
 .workspace-mark { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 7px; background: var(--lime); color: var(--ink); display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; }
@@ -78,7 +79,9 @@ input, textarea { min-width: 0; }
 .workspace-account:hover small { color: var(--lime); }
 .workspace-main { min-width: 0; }
 .workspace-topbar { min-height: 59px; display: flex; gap: 12px; align-items: center; padding: 18px 32px; font-size: 10px; color: var(--muted); }
-.workspace-topbar > span:first-child { font-weight: 700; }
+.workspace-label { font-weight: 700; }
+.sidebar-toggle { min-height: 34px; width: 34px; flex: 0 0 34px; padding: 7px; }
+.sidebar-toggle img { display: block; width: 18px; height: 18px; }
 .workspace-topbar strong { font-size: 11px; font-weight: 600; color: var(--ink); }
 .workspace-topbar time { font-size: 11px; font-weight: 500; }
 .breadcrumb-divider { color: var(--line); }
@@ -291,7 +294,7 @@ dialog::backdrop { background: #18221d73; backdrop-filter: blur(3px); }
   .workspace-account { margin: 0 0 0 auto; border: 0; padding: 0; }
   .account-avatar { display: none; }
   .workspace-topbar { min-height: auto; padding: 12px 20px; gap: 8px; }
-  .workspace-topbar time, .workspace-topbar .badge, .workspace-topbar > span:first-child, .breadcrumb-divider { display: none; }
+  .workspace-topbar time, .workspace-topbar .badge, .workspace-label, .breadcrumb-divider { display: none; }
   .workspace-heading { padding: 12px 20px 24px; align-items: flex-start; flex-wrap: wrap; }
   h1 { font-size: 23px; line-height: 35px; }
   .workspace-heading > div:first-child { flex: 1 0 100%; }
