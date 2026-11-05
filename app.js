@@ -535,6 +535,12 @@ function orderFilterControl() {
 
 function productGroupFor(part) {
   const description = String(part.description || "");
+  if (/\b(?:airpods?|airtags?|earpods|pencil|keyboard|mouse|trackpad|cables?|adapters?|chargers?|earphones?|headphones?|headsets?|folio|covers?|sleeves?|protectors?|replacement|straps?|buckles?)\b/i.test(description)) return "accessories";
+  const isWatch = /\bapple\s*watch\b/i.test(description);
+  // Watch devices include their case and band in the product name.
+  if (isWatch && /\b(?:series\s*\d+|se\d*|ultra\d*|gps|cellular)\b/i.test(description)) return "apple-watch";
+  if (/\b(?:cases?|bands?|loops?)\b/i.test(description)) return "accessories";
+  if (isWatch) return "apple-watch";
   if (/\biphone/i.test(description)) return "iphone";
   if (/\bipad/i.test(description)) return "ipad";
   if (/\b(?:macbook|imac|mac\b)/i.test(description)) return "mac";
@@ -543,7 +549,7 @@ function productGroupFor(part) {
 
 function productFilterControls() {
   return `<div class="product-filter-bar"><span class="product-filter-label">กลุ่มสินค้า</span><div class="product-filter" role="group" aria-label="กลุ่มสินค้า">${[
-    ["all", "ทั้งหมด"], ["iphone", "iPhone"], ["ipad", "iPad"], ["mac", "Mac"]
+    ["all", "ทั้งหมด"], ["iphone", "iPhone"], ["ipad", "iPad"], ["mac", "Mac"], ["accessories", "Accessories"], ["apple-watch", "Apple Watch"]
   ].map(([value, label]) => `<button type="button" data-product-filter="${value}" aria-pressed="${adminProductFilter === value}" class="product-filter-button ${adminProductFilter === value ? "active" : ""}">${label}</button>`).join("")}</div></div>`;
 }
 
