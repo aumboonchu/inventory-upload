@@ -1,6 +1,11 @@
 ﻿const apiBaseUrl = window.APP_CONFIG?.apiBaseUrl || "http://localhost:8787";
+const stockNumber = new Intl.NumberFormat("en-US");
 const page = document.body.dataset.page || "home";
 const role = document.body.dataset.vendor || "admin";
+const privateStockPage = window.APP_CONFIG?.showJibStock === true;
+const remoteStockApi = page === "admin" && role === "admin" && !privateStockPage &&
+  location.origin === "https://aumboonchu.github.io" ? document.body.dataset.stockApi || "" : "";
+const showJibStock = privateStockPage || Boolean(remoteStockApi);
 const vendorLabel = { synnex: "Synnex", vst: "VST", ais: "AIS", admin: "Admin" };
 const supplierKeys = ["synnex", "vst", "ais"];
 const app = document.querySelector("#app");
@@ -8,6 +13,8 @@ const app = document.querySelector("#app");
 let token = localStorage.getItem(`inventory_token_${role}`) || "";
 let parsedRows = [];
 let lastAdminData = null;
+let adminLoadVersion = 0;
+let remoteStockConnected = false;
 let masterParts = null;
 let masterPartsPromise = null;
 let partModalEventsBound = false;
@@ -60,16 +67,21 @@ function formatDateTime(value) {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(`${apiBaseUrl}${path}`, {
-    ...options,
+  const { viaStock = false, ...request } = options;
+  const privateRequest = path === "/api/admin/parts" || path === "/api/admin/jib-stock";
+  const remoteRequest = Boolean(remoteStockApi && privateRequest && viaStock);
+  const url = remoteRequest ? remoteStockApi + path : privateStockPage && privateRequest ? path : apiBaseUrl + path;
+  const res = await fetch(url, {
+    ...request,
+    ...(remoteRequest ? { credentials: "omit", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(45000) } : {}),
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {})
+      ...(request.headers || {})
     }
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Request failed");
+  if (!res.ok) throw Object.assign(new Error(data.error || "Request failed"), { status: res.status });
   return data;
 }
 
@@ -571,6 +583,7 @@ function renderAdminTable(parts, query = "") {
   const suppliers = getActiveAdminSuppliers();
   return `<table class="supplier-visible-${suppliers.length}"><thead><tr>
     <th class="part-column" scope="col">Part No. / สถานะ</th><th class="description-column" scope="col">Description</th>
+    ${showJibStock ? '<th class="jib-stock-column" scope="col">JIB Stock</th>' : ""}
     ${suppliers.map((supplier) => `<th class="supplier-column" scope="col">${vendorLabel[supplier]}<small>Qty · Price ex VAT</small></th>`).join("")}
     </tr></thead><tbody id="adminBody">${adminRows(parts, query, suppliers)}</tbody></table>`;
 }
@@ -586,12 +599,13 @@ function filteredAdminParts(parts, query = "") {
 
 function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
   const rows = filteredAdminParts(parts, query);
-  if (!rows.length) return `<tr><td class="inventory-empty" colspan="${2 + suppliers.length}">ไม่พบรายการสินค้า</td></tr>`;
+  if (!rows.length) return `<tr><td class="inventory-empty" colspan="${(showJibStock ? 3 : 2) + suppliers.length}">ไม่พบรายการสินค้า</td></tr>`;
   return rows.map((part) => {
     const available = suppliers.filter((supplier) => part[supplier]).length;
     return `<tr class="inventory-row state-${orderStateFor(part).key}" style="--supplier-count:${Math.max(available, 1)}">
       <td class="part-cell"><button class="part-link" data-part-no="${escapeHtml(part.partNo)}" type="button">${escapeHtml(part.partNo)}</button>${orderStateCell(part)}</td>
       <td class="description-cell">${escapeHtml(part.description || "—")}</td>
+      ${showJibStock ? `<td class="jib-stock-cell"><span class="jib-stock-label">JIB Stock</span><span class="jib-stock-value">${Number.isSafeInteger(part.jibStock) ? stockNumber.format(part.jibStock) : "—"}</span></td>` : ""}
       ${suppliers.map((supplier) => `<td class="supplier-cell ${part[supplier] ? "" : "no-inventory"}" data-supplier="${vendorLabel[supplier]}">${vendorCell(part[supplier], part, supplier)}</td>`).join("")}
     </tr>`;
   }).join("");
@@ -619,21 +633,45 @@ function latestUploadsView(uploads) {
       return `<article class="latest-card latest-${supplier}"><span class="supplier-mark">${supplier === "synnex" ? "S" : vendorLabel[supplier]}</span><div class="latest-info"><h3>${vendorLabel[supplier]}</h3><span>${upload ? escapeHtml(formatDateTime(upload.uploadedAt)) : "รอการอัปโหลด"}</span></div><div class="latest-count"><strong>${escapeHtml(upload?.count ?? 0)}</strong><span>rows</span></div></article>`;
     }).join("")}</div></section>`;
 }
-async function loadAdmin() {
-  lastAdminData = await api("/api/admin/parts");
-  return lastAdminData;
-}
-
-async function adminView(status = "") {
+async function adminView(status = "", { connectStock = false } = {}) {
+  if (!token) return;
+  const version = ++adminLoadVersion;
   let data;
-  try { data = await loadAdmin(); }
+  const tryRemote = remoteStockApi && (remoteStockConnected || connectStock);
+  const pendingStock = tryRemote ? api("/api/admin/parts", { viaStock: true }).then((value) => ({ value }), (error) => ({ error })) : null;
+  try {
+    if (pendingStock) {
+      const result = await pendingStock;
+      if (version !== adminLoadVersion) return;
+      remoteStockConnected = Boolean(result.value);
+      if (result.error?.status === 401) throw result.error;
+      if (result.error) {
+        data = await api("/api/admin/parts");
+        data = { ...data, remoteStockError: result.error.status === 403 ? "access" : "connection" };
+      } else {
+        data = result.value;
+      }
+    } else {
+      data = await api("/api/admin/parts");
+    }
+    if (version !== adminLoadVersion) return;
+    lastAdminData = data;
+  }
   catch (error) {
-    if (error.message === "Unauthorized") { token = ""; localStorage.removeItem("inventory_token_admin"); return loginView("หมดเวลาการเข้าใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง"); }
+    if (version !== adminLoadVersion) return;
+    if (error.status === 401 || error.message === "Unauthorized" || (showJibStock && error.status === 403)) {
+      token = "";
+      lastAdminData = null;
+      remoteStockConnected = false;
+      localStorage.removeItem("inventory_token_admin");
+      return loginView(error.status === 403 ? "ไม่มีสิทธิ์เข้าถึง Admin ส่วนตัว" : "หมดเวลาการเข้าใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง");
+    }
     status = statusMessage(error.message, "error");
+    if (showJibStock) lastAdminData = null;
     data = lastAdminData || { parts: [], uploads: [] };
   }
   app.innerHTML = shell(html`
-    <section class="workspace-heading"><div><h1>Combined inventory</h1><p>สต็อกล่าสุดจากทุก Supplier ในมุมมองเดียว</p></div><div class="heading-actions"><button class="button secondary icon-button" id="refreshBtn" type="button" title="Refresh" aria-label="Refresh">${adminIcon("refresh")}</button><button class="button primary" id="exportBtn" type="button">${adminIcon("download")}Export CSV</button></div></section>
+    <section class="workspace-heading"><div><h1>Combined inventory</h1><p>สต็อกล่าสุดจากทุก Supplier ในมุมมองเดียว</p></div><div class="heading-actions">${showJibStock ? '<button class="button secondary" id="jibStockUploadBtn" type="button"><img class="stock-upload-icon" src="assets/upload.svg" width="16" height="16" alt="">อัปโหลดสต็อก Excel</button>' : ""}<button class="button secondary icon-button" id="refreshBtn" type="button" title="Refresh" aria-label="Refresh">${adminIcon("refresh")}</button><button class="button primary" id="exportBtn" type="button">${adminIcon("download")}Export CSV</button></div></section>
     <section class="order-summary" aria-label="สรุปสถานะสั่งซื้อ">${[["all", "Part ทั้งหมด"], ["pending", "ยังไม่สั่ง"], ["partial", "สั่งบาง Supplier"], ["complete", "สั่งครบแล้ว"]].map(([key, label]) => `<div class="summary-${key}"><strong data-order-count="${key}">${key === "all" ? data.parts.length : data.parts.filter((p) => orderStateFor(p).key === key).length}</strong><span>${label}</span></div>`).join("")}</section>
     ${latestUploadsView(data.uploads)}
     <section class="admin-workspace">
@@ -647,10 +685,12 @@ async function adminView(status = "") {
       ${productFilterControls()}
       <div class="admin-order-bar">${orderFilterControl()}<span id="visiblePartsCount" class="hint">${filteredAdminParts(data.parts, adminSearchQuery).length} parts</span></div>
       ${status}
+      ${showJibStock ? jibStockUploadSummary(data) : ""}
       <div class="table-wrap admin-table" id="adminTableWrap" tabindex="0" role="region" aria-label="ตาราง inventory">${renderAdminTable(data.parts, adminSearchQuery)}</div>
       <div class="admin-footer"><span>${adminIcon("clock")}อัปเดตล่าสุด ${escapeHtml(formatDateTime(data.updatedAt))}</span>${inventoryResultSummary(data.parts)}</div>
     </section>
     ${passwordDialogMarkup("adminPasswordDialog", "Admin")}
+    ${showJibStock ? jibStockUploadDialog() : ""}
   `, "admin");
   bindCommon();
   bindAdminPasswordReset();
@@ -662,6 +702,14 @@ async function adminView(status = "") {
   bindAdminProductFilter();
   document.querySelector("#searchBox").addEventListener("input", (event) => { adminSearchQuery = event.currentTarget.value; renderAdminTableIntoView(); });
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
+  if (showJibStock) {
+    bindJibStockUpload();
+    document.querySelector("#connectJibStockBtn")?.addEventListener("click", (event) => {
+      event.currentTarget.disabled = true;
+      event.currentTarget.textContent = "กำลังเชื่อมต่อ…";
+      void adminView("", { connectStock: true });
+    });
+  }
   bindPasswordDialog("#adminPasswordBtn", "#adminPasswordDialog");
   const menu = document.querySelector("#adminManagement");
   menu.addEventListener("keydown", (event) => { if (event.key === "Escape") { menu.open = false; menu.querySelector("summary").focus(); } });
@@ -669,6 +717,104 @@ async function adminView(status = "") {
   bindPartDetailLinks();
   bindPartOrderToggles();
   bindPartDetailModalEvents();
+}
+
+function jibStockUploadSummary(data) {
+  if (remoteStockApi && !remoteStockConnected) {
+    const label = data.remoteStockError === "access" ? "บัญชี Tailscale นี้ไม่มีสิทธิ์ดู JIB Stock" :
+      data.remoteStockError ? "เชื่อมต่อไม่ได้ ตรวจว่าเปิด Tailscale และเบราว์เซอร์อนุญาตการเข้าถึงเครือข่าย" :
+      "JIB Stock: ยังไม่ได้เชื่อมต่อ Tailscale";
+    return `<div class="jib-stock-summary"><span role="status">${escapeHtml(label)}</span><button class="button secondary stock-connect" id="connectJibStockBtn" type="button">เชื่อมต่อ JIB Stock</button></div>`;
+  }
+  const upload = data.jibStockUpload;
+  if (!upload) {
+    return data.jibStockUnavailable
+      ? statusMessage("JIB Stock: เปิดชุดข้อมูลที่บันทึกไว้ไม่ได้", "error")
+      : '<p class="jib-stock-summary hint">JIB Stock: ยังไม่มีไฟล์ Excel</p>';
+  }
+  return `<div class="jib-stock-summary" aria-label="ไฟล์ JIB Stock">
+    <strong>JIB Stock</strong><span class="jib-stock-filename">${escapeHtml(upload.filename)}</span>
+    <span>อัปโหลด ${escapeHtml(formatDateTime(upload.uploadedAt))}</span>
+    <span class="badge ${upload.matchedCount ? "" : "badge-amber"}">ตรงกับ Allocation ${escapeHtml(upload.matchedCount)}/${escapeHtml(upload.allocationCount)} Part</span>
+  </div>`;
+}
+
+function jibStockUploadDialog() {
+  return `<dialog class="admin-dialog" id="jibStockUploadDialog" aria-labelledby="jibStockUploadTitle">
+    <h2 id="jibStockUploadTitle">อัปโหลดสต็อก Excel</h2>
+    <form id="jibStockUploadForm">
+      <div class="field">
+        <label for="jibStockFile">ไฟล์สต็อก JIB (.xlsx)</label>
+        <input id="jibStockFile" class="stock-file-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+      </div>
+      <p class="hint">ไฟล์ใหม่จะแทนยอด JIB Stock จากไฟล์ก่อนหน้า</p>
+      <div id="jibStockUploadFeedback" role="status" aria-live="polite"></div>
+      <div class="dialog-actions">
+        <button class="button secondary" type="button" id="jibStockUploadCancel">ยกเลิก</button>
+        <button class="button primary" type="submit" id="jibStockUploadSubmit">อัปโหลด</button>
+      </div>
+    </form>
+  </dialog>`;
+}
+
+function bindJibStockUpload() {
+  const dialog = document.querySelector("#jibStockUploadDialog");
+  const form = dialog.querySelector("form");
+  const input = dialog.querySelector("#jibStockFile");
+  const feedback = dialog.querySelector("#jibStockUploadFeedback");
+  const submit = dialog.querySelector("#jibStockUploadSubmit");
+  const cancel = dialog.querySelector("#jibStockUploadCancel");
+  document.querySelector("#jibStockUploadBtn").addEventListener("click", () => {
+    form.reset();
+    feedback.textContent = "";
+    dialog.showModal();
+  });
+  cancel.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("cancel", (event) => { if (submit.disabled) event.preventDefault(); });
+  input.addEventListener("change", () => { feedback.textContent = ""; });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    const file = input.files[0];
+    if (!file || !/\.xlsx$/i.test(file.name) || !file.size || file.size > 8 * 1024 * 1024) {
+      feedback.innerHTML = statusMessage("กรุณาเลือกไฟล์ .xlsx ที่มีข้อมูลและขนาดไม่เกิน 8 MB", "error");
+      return;
+    }
+    const uploadToken = token;
+    input.disabled = submit.disabled = cancel.disabled = true;
+    submit.textContent = "กำลังอัปโหลด…";
+    feedback.textContent = "";
+    try {
+      const { jibStockUpload } = await api("/api/admin/jib-stock", {
+        method: "POST",
+        viaStock: true,
+        headers: { "Content-Type": "application/octet-stream", "X-Stock-Filename": encodeURIComponent(file.name) },
+        body: file
+      });
+      if (token !== uploadToken) return;
+      dialog.close();
+      await adminView(statusMessage(`อัปโหลด JIB Stock แล้ว: ${jibStockUpload.partCount} Part จับคู่ Allocation ได้ ${jibStockUpload.matchedCount} Part`));
+    } catch (error) {
+      if (token !== uploadToken) return;
+      if (error.status === 401 || (privateStockPage && error.status === 403)) {
+        dialog.close();
+        token = "";
+        lastAdminData = null;
+        remoteStockConnected = false;
+        adminLoadVersion++;
+        localStorage.removeItem("inventory_token_admin");
+        loginView("กรุณาเข้าสู่ระบบ Admin อีกครั้ง");
+        return;
+      }
+      const message = remoteStockApi && (error instanceof TypeError || error.name === "TimeoutError" || error.status === 403)
+        ? "อัปโหลดไม่ได้ ตรวจสิทธิ์และการเชื่อมต่อ Tailscale แล้วลองอีกครั้ง"
+        : error.message;
+      feedback.innerHTML = statusMessage(message, "error");
+    } finally {
+      input.disabled = submit.disabled = cancel.disabled = false;
+      submit.textContent = "อัปโหลด";
+    }
+  });
 }
 
 function closeAdminManagement() {
@@ -841,15 +987,33 @@ function bindAdminOrderStatusReset() {
   });
 }
 
-function exportAdminCsv() {
+async function exportAdminCsv() {
   if (!lastAdminData || !lastAdminData.parts?.length) {
     showAdminExportStatus("ยังไม่มีข้อมูลสำหรับ export", "error");
     return;
   }
   const date = new Date().toISOString().slice(0, 10);
-  const serverExportUrl = `${apiBaseUrl}/api/admin/export.csv?token=${encodeURIComponent(token)}`;
-  triggerDownload(serverExportUrl, `combined-parts-${date}.csv`);
-  showAdminExportStatus(`กำลัง export CSV ${lastAdminData.parts.length} รายการ`, "success");
+  const serverExportUrl = `${apiBaseUrl}/api/admin/export.csv`;
+  const filename = `combined-parts-${date}.csv`;
+  const count = lastAdminData.parts.length;
+  if (showJibStock) {
+    const exportToken = token;
+    try {
+      const response = await fetch(serverExportUrl, { headers: { Authorization: `Bearer ${exportToken}` } });
+      if (!response.ok) throw new Error("ส่งออก CSV ไม่สำเร็จ");
+      const blob = await response.blob();
+      if (token !== exportToken) return;
+      const url = URL.createObjectURL(blob);
+      triggerDownload(url, filename);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      if (token === exportToken) showAdminExportStatus("ส่งออก CSV ไม่สำเร็จ", "error");
+      return;
+    }
+  } else {
+    triggerDownload(`${serverExportUrl}?token=${encodeURIComponent(token)}`, filename);
+  }
+  showAdminExportStatus(`กำลัง export CSV ${count} รายการ`, "success");
 }
 
 function exportAdminCsvFromBrowserData() {
@@ -912,6 +1076,9 @@ function bindCommon() {
   });
   document.querySelector("#logoutBtn")?.addEventListener("click", () => {
     token = "";
+    lastAdminData = null;
+    remoteStockConnected = false;
+    adminLoadVersion++;
     localStorage.removeItem(`inventory_token_${role}`);
     parsedRows = [];
     uploadReadVersion++;

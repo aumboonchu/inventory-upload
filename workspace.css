@@ -58,6 +58,7 @@ input, textarea { min-width: 0; }
 .status { padding: 12px 16px; margin: 0 0 18px; border-radius: 6px; font-size: 12px; overflow-wrap: anywhere; animation: arrive .18s ease-out; }
 .status.success { color: var(--teal); background: var(--mint); border: 1px solid #d6eadd; }
 .status.error { color: var(--danger); background: #fff0ed; border: 1px solid #f0d9d2; }
+.status.warning { color: #854a16; background: var(--sand); border: 1px solid #ead7bc; }
 .workspace-shell { display: grid; grid-template-columns: 184px minmax(0,1fr); min-height: 100dvh; background: var(--surface); }
 .workspace-shell.sidebar-hidden { grid-template-columns: minmax(0,1fr); }
 .workspace-sidebar { position: sticky; top: 0; height: 100dvh; padding: 20px; background: var(--sidebar); display: flex; flex-direction: column; gap: 8px; color: #cbd8cf; }
@@ -89,7 +90,8 @@ input, textarea { min-width: 0; }
 .workspace-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 32px; }
 .workspace-heading > div:first-child { min-width: 0; flex: 1; }
 .workspace-heading p { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 18px; }
-.heading-actions { display: flex; gap: 18px; align-items: center; }
+.heading-actions { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+.stock-upload-icon { flex: 0 0 16px; display: block; }
 .order-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); padding: 0 32px 24px; gap: 16px; }
 .order-summary > div { display: flex; align-items: center; gap: 12px; }
 .order-summary strong { font-size: 30px; line-height: 45px; font-weight: 700; }
@@ -150,6 +152,7 @@ thead { background: var(--canvas); }
 th { padding: 12px; color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; vertical-align: top; }
 th small { display: block; font-size: 8px; font-weight: 400; text-transform: none; margin-top: 2px; }
 .part-column { width: 160px; }
+.jib-stock-column { width: 104px; }
 .supplier-column { width: 176px; }
 td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
 .inventory-row { height: 76px; }
@@ -163,6 +166,16 @@ td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; o
 .order-state-partial { color: var(--amber); }
 .order-state-complete { color: var(--teal); }
 .description-cell { font-size: 12px; font-weight: 500; line-height: 20px; }
+.jib-stock-cell { font-size: 12px; line-height: 20px; }
+.jib-stock-label { display: none; }
+.jib-stock-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.jib-stock-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; padding: 12px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.jib-stock-summary strong { color: var(--ink); }
+.jib-stock-summary .stock-connect { min-height: 32px; padding: 6px 12px; }
+.jib-stock-filename { min-width: 0; overflow-wrap: anywhere; }
+.stock-file-input { width: 100%; min-height: 42px; padding: 7px; background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; }
+.stock-file-input::file-selector-button { border: 1px solid var(--line); border-radius: 4px; background: var(--surface); padding: 4px 8px; margin-right: 8px; cursor: pointer; }
+#jibStockUploadFeedback .status { margin: 12px 0 0; }
 .vendor-cell { display: grid; gap: 5px; }
 .vendor-values { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 10px; }
 .vendor-values strong { font-size: 12px; font-weight: 700; }
@@ -335,6 +348,8 @@ dialog::backdrop { background: #18221d73; backdrop-filter: blur(3px); }
   .order-state-partial { background: var(--sand); }
   .order-state-complete { background: var(--mint); }
   .description-cell { grid-column: 1 / -1; font-size: 13px; line-height: 21px; margin: 12px 0 16px; }
+  .admin-table .jib-stock-cell { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+  .jib-stock-label { display: inline; color: var(--muted); font-size: 11px; font-weight: 600; }
   .admin-table .supplier-cell { padding: 14px 12px; background: var(--canvas); }
   .supplier-cell::before { content: attr(data-supplier); display: block; color: var(--muted); font-size: 10px; font-weight: 700; margin-bottom: 6px; }
   .admin-table .supplier-cell.no-inventory { display: none; }
