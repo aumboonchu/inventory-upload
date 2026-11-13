@@ -3,9 +3,8 @@ const stockNumber = new Intl.NumberFormat("en-US");
 const page = document.body.dataset.page || "home";
 const role = document.body.dataset.vendor || "admin";
 const privateStockPage = window.APP_CONFIG?.showJibStock === true;
-const remoteStockApi = page === "admin" && role === "admin" && !privateStockPage &&
-  location.origin === "https://aumboonchu.github.io" ? document.body.dataset.stockApi || "" : "";
-const showJibStock = privateStockPage || Boolean(remoteStockApi);
+const showJibStock = page === "admin" && role === "admin" &&
+  (privateStockPage || document.body.dataset.jibStock === "true");
 const vendorLabel = { synnex: "Synnex", vst: "VST", ais: "AIS", admin: "Admin" };
 const supplierKeys = ["synnex", "vst", "ais"];
 const app = document.querySelector("#app");
@@ -14,7 +13,6 @@ let token = localStorage.getItem(`inventory_token_${role}`) || "";
 let parsedRows = [];
 let lastAdminData = null;
 let adminLoadVersion = 0;
-let remoteStockConnected = false;
 let masterParts = null;
 let masterPartsPromise = null;
 let partModalEventsBound = false;
@@ -67,17 +65,15 @@ function formatDateTime(value) {
 }
 
 async function api(path, options = {}) {
-  const { viaStock = false, ...request } = options;
   const privateRequest = path === "/api/admin/parts" || path === "/api/admin/jib-stock";
-  const remoteRequest = Boolean(remoteStockApi && privateRequest && viaStock);
-  const url = remoteRequest ? remoteStockApi + path : privateStockPage && privateRequest ? path : apiBaseUrl + path;
+  const url = privateStockPage && privateRequest ? path : apiBaseUrl + path;
   const res = await fetch(url, {
-    ...request,
-    ...(remoteRequest ? { credentials: "omit", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(45000) } : {}),
+    ...options,
+    ...(privateRequest ? { credentials: "omit", redirect: "error", cache: "no-store" } : {}),
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(request.headers || {})
+      ...(options.headers || {})
     }
   });
   const data = await res.json().catch(() => ({}));
@@ -633,27 +629,12 @@ function latestUploadsView(uploads) {
       return `<article class="latest-card latest-${supplier}"><span class="supplier-mark">${supplier === "synnex" ? "S" : vendorLabel[supplier]}</span><div class="latest-info"><h3>${vendorLabel[supplier]}</h3><span>${upload ? escapeHtml(formatDateTime(upload.uploadedAt)) : "รอการอัปโหลด"}</span></div><div class="latest-count"><strong>${escapeHtml(upload?.count ?? 0)}</strong><span>rows</span></div></article>`;
     }).join("")}</div></section>`;
 }
-async function adminView(status = "", { connectStock = false } = {}) {
+async function adminView(status = "") {
   if (!token) return;
   const version = ++adminLoadVersion;
   let data;
-  const tryRemote = remoteStockApi && (remoteStockConnected || connectStock);
-  const pendingStock = tryRemote ? api("/api/admin/parts", { viaStock: true }).then((value) => ({ value }), (error) => ({ error })) : null;
   try {
-    if (pendingStock) {
-      const result = await pendingStock;
-      if (version !== adminLoadVersion) return;
-      remoteStockConnected = Boolean(result.value);
-      if (result.error?.status === 401) throw result.error;
-      if (result.error) {
-        data = await api("/api/admin/parts");
-        data = { ...data, remoteStockError: result.error.status === 403 ? "access" : "connection" };
-      } else {
-        data = result.value;
-      }
-    } else {
-      data = await api("/api/admin/parts");
-    }
+    data = await api("/api/admin/parts");
     if (version !== adminLoadVersion) return;
     lastAdminData = data;
   }
@@ -662,7 +643,6 @@ async function adminView(status = "", { connectStock = false } = {}) {
     if (error.status === 401 || error.message === "Unauthorized" || (showJibStock && error.status === 403)) {
       token = "";
       lastAdminData = null;
-      remoteStockConnected = false;
       localStorage.removeItem("inventory_token_admin");
       return loginView(error.status === 403 ? "ไม่มีสิทธิ์เข้าถึง Admin ส่วนตัว" : "หมดเวลาการเข้าใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง");
     }
@@ -702,14 +682,7 @@ async function adminView(status = "", { connectStock = false } = {}) {
   bindAdminProductFilter();
   document.querySelector("#searchBox").addEventListener("input", (event) => { adminSearchQuery = event.currentTarget.value; renderAdminTableIntoView(); });
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
-  if (showJibStock) {
-    bindJibStockUpload();
-    document.querySelector("#connectJibStockBtn")?.addEventListener("click", (event) => {
-      event.currentTarget.disabled = true;
-      event.currentTarget.textContent = "กำลังเชื่อมต่อ…";
-      void adminView("", { connectStock: true });
-    });
-  }
+  if (showJibStock) bindJibStockUpload();
   bindPasswordDialog("#adminPasswordBtn", "#adminPasswordDialog");
   const menu = document.querySelector("#adminManagement");
   menu.addEventListener("keydown", (event) => { if (event.key === "Escape") { menu.open = false; menu.querySelector("summary").focus(); } });
@@ -720,12 +693,6 @@ async function adminView(status = "", { connectStock = false } = {}) {
 }
 
 function jibStockUploadSummary(data) {
-  if (remoteStockApi && !remoteStockConnected) {
-    const label = data.remoteStockError === "access" ? "บัญชี Tailscale นี้ไม่มีสิทธิ์ดู JIB Stock" :
-      data.remoteStockError ? "เชื่อมต่อไม่ได้ ตรวจว่าเปิด Tailscale และเบราว์เซอร์อนุญาตการเข้าถึงเครือข่าย" :
-      "JIB Stock: ยังไม่ได้เชื่อมต่อ Tailscale";
-    return `<div class="jib-stock-summary"><span role="status">${escapeHtml(label)}</span><button class="button secondary stock-connect" id="connectJibStockBtn" type="button">เชื่อมต่อ JIB Stock</button></div>`;
-  }
   const upload = data.jibStockUpload;
   if (!upload) {
     return data.jibStockUnavailable
@@ -757,6 +724,23 @@ function jibStockUploadDialog() {
   </dialog>`;
 }
 
+async function readJibStockWorkbook(file) {
+  const buffer = await file.arrayBuffer();
+  const reader = new Worker("assets/jib-stock-worker.js?v=20261113-stock-d1");
+  let timeout;
+  try {
+    return await new Promise((resolve, reject) => {
+      timeout = setTimeout(() => reject(new Error("ใช้เวลาอ่านไฟล์นานเกินไป กรุณาลองไฟล์ที่เล็กลง")), 20000);
+      reader.onmessage = ({ data }) => data.error ? reject(new Error(data.error)) : resolve(data.result);
+      reader.onerror = () => reject(new Error("เปิดไฟล์ Excel ไม่ได้ กรุณารีเฟรชหน้าแล้วลองอีกครั้ง"));
+      reader.postMessage(buffer, [buffer]);
+    });
+  } finally {
+    clearTimeout(timeout);
+    reader.terminate();
+  }
+}
+
 function bindJibStockUpload() {
   const dialog = document.querySelector("#jibStockUploadDialog");
   const form = dialog.querySelector("form");
@@ -782,15 +766,20 @@ function bindJibStockUpload() {
     }
     const uploadToken = token;
     input.disabled = submit.disabled = cancel.disabled = true;
-    submit.textContent = "กำลังอัปโหลด…";
+    submit.textContent = privateStockPage ? "กำลังอัปโหลด…" : "กำลังอ่าน Excel…";
     feedback.textContent = "";
     try {
+      const request = privateStockPage
+        ? { headers: { "Content-Type": "application/octet-stream", "X-Stock-Filename": encodeURIComponent(file.name) }, body: file }
+        : { body: JSON.stringify({ filename: file.name, ...await readJibStockWorkbook(file) }) };
+      if (token !== uploadToken || !dialog.isConnected) return;
+      submit.textContent = "กำลังอัปโหลด…";
       const { jibStockUpload } = await api("/api/admin/jib-stock", {
         method: "POST",
-        viaStock: true,
-        headers: { "Content-Type": "application/octet-stream", "X-Stock-Filename": encodeURIComponent(file.name) },
-        body: file
+        signal: AbortSignal.timeout(45000),
+        ...request
       });
+      if (!jibStockUpload) throw new Error("บันทึก JIB Stock ไม่สำเร็จ");
       if (token !== uploadToken) return;
       dialog.close();
       await adminView(statusMessage(`อัปโหลด JIB Stock แล้ว: ${jibStockUpload.partCount} Part จับคู่ Allocation ได้ ${jibStockUpload.matchedCount} Part`));
@@ -800,14 +789,13 @@ function bindJibStockUpload() {
         dialog.close();
         token = "";
         lastAdminData = null;
-        remoteStockConnected = false;
         adminLoadVersion++;
         localStorage.removeItem("inventory_token_admin");
         loginView("กรุณาเข้าสู่ระบบ Admin อีกครั้ง");
         return;
       }
-      const message = remoteStockApi && (error instanceof TypeError || error.name === "TimeoutError" || error.status === 403)
-        ? "อัปโหลดไม่ได้ ตรวจสิทธิ์และการเชื่อมต่อ Tailscale แล้วลองอีกครั้ง"
+      const message = error instanceof TypeError || error.name === "TimeoutError"
+        ? "อัปโหลดไม่ได้ ตรวจการเชื่อมต่อแล้วลองอีกครั้ง"
         : error.message;
       feedback.innerHTML = statusMessage(message, "error");
     } finally {
@@ -1077,7 +1065,6 @@ function bindCommon() {
   document.querySelector("#logoutBtn")?.addEventListener("click", () => {
     token = "";
     lastAdminData = null;
-    remoteStockConnected = false;
     adminLoadVersion++;
     localStorage.removeItem(`inventory_token_${role}`);
     parsedRows = [];

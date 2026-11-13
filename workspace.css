@@ -171,7 +171,6 @@ td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; o
 .jib-stock-value { font-weight: 700; font-variant-numeric: tabular-nums; }
 .jib-stock-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; padding: 12px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .jib-stock-summary strong { color: var(--ink); }
-.jib-stock-summary .stock-connect { min-height: 32px; padding: 6px 12px; }
 .jib-stock-filename { min-width: 0; overflow-wrap: anywhere; }
 .stock-file-input { width: 100%; min-height: 42px; padding: 7px; background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; }
 .stock-file-input::file-selector-button { border: 1px solid var(--line); border-radius: 4px; background: var(--surface); padding: 4px 8px; margin-right: 8px; cursor: pointer; }
