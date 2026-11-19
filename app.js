@@ -27,6 +27,7 @@ let uploadReadVersion = 0;
 let sidebarHidden = localStorage.getItem("inventory_sidebar_hidden") === "true";
 
 function adminIcon(name) {
+  if (name === "sales") return '<span class="workspace-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21v-6"/><path d="M12 21V9"/><path d="M19 21V3"/></svg></span>';
   const assets = { settings: "e7977", "settings-muted": "0d2f1", "settings-small": "f22e1", "settings-login": "94fcc", "settings-note": "8479a", download: "34023", "download-muted": "2550a", refresh: "8aabe", search: "c79ca", clock: "fa1f6", "clock-upload": "098ef" };
   return `<span class="workspace-icon icon-${escapeHtml(name)}" aria-hidden="true"><img src="assets/fresh-${assets[name] || assets.settings}.svg" alt=""></span>`;
 }
@@ -66,10 +67,11 @@ function formatDateTime(value) {
 
 async function api(path, options = {}) {
   const privateRequest = path === "/api/admin/parts" || path === "/api/admin/jib-stock";
+  const salesRequest = path.split("?")[0] === "/api/admin/sales";
   const url = privateStockPage && privateRequest ? path : apiBaseUrl + path;
   const res = await fetch(url, {
     ...options,
-    ...(privateRequest ? { credentials: "omit", redirect: "error", cache: "no-store" } : {}),
+    ...(privateRequest || salesRequest ? { credentials: "omit", redirect: "error", cache: "no-store" } : {}),
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -83,14 +85,21 @@ async function api(path, options = {}) {
 
 function shell(content, active = role) {
   const isAdmin = role === "admin";
-  const links = isAdmin ? ["admin", ...supplierKeys] : [role];
-  const label = isAdmin ? "Combined inventory" : vendorLabel[role] + " upload";
+  const links = isAdmin ? ["admin", "sales", ...supplierKeys] : [role];
+  const label = active === "sales" ? "ยอดขาย" : isAdmin ? "Combined inventory" : vendorLabel[role] + " upload";
+  const navLink = (key) => {
+    const adminPage = key === "admin" || key === "sales";
+    const href = adminPage ? key + ".html" : "upload-" + key + ".html";
+    const text = key === "admin" ? "Inventory" : key === "sales" ? "ยอดขาย" : vendorLabel[key];
+    const icon = key === "sales" ? "sales" : key === "admin" ? (active === key ? "settings" : "settings-muted") : active === key ? "download" : "download-muted";
+    return '<a href="' + href + '"' + (active === key ? ' class="active" aria-current="page"' : "") + ">" + adminIcon(icon) + "<span>" + text + "</span></a>";
+  };
   return html`
     <div class="workspace-shell ${sidebarHidden ? "sidebar-hidden" : ""}">
       <aside class="workspace-sidebar" id="workspaceSidebar" aria-label="พื้นที่ทำงาน" ${sidebarHidden ? "hidden" : ""}>
         <a class="workspace-brand" href="index.html"><span class="workspace-mark">JIB</span><span><strong>Inventory</strong><small>JIB WORKSPACE</small></span></a>
         <span class="nav-caption">WORKSPACE</span>
-        <nav class="workspace-nav">${links.map((key) => `<a href="${key === "admin" ? "admin.html" : "upload-" + key + ".html"}" class="${active === key ? "active" : ""}" ${active === key ? 'aria-current="page"' : ""}>${adminIcon(key === "admin" ? "settings" : active === key ? "download" : "download-muted")}<span>${key === "admin" ? "Inventory" : vendorLabel[key]}</span></a>`).join("")}</nav>
+        <nav class="workspace-nav">${links.map(navLink).join("")}</nav>
         <button class="workspace-account" id="logoutBtn" type="button" title="ออกจากระบบ"><span class="account-avatar">${isAdmin ? "A" : vendorLabel[role].slice(0, 1)}</span><span><strong>${escapeHtml(vendorLabel[role])}</strong><small>ออกจากระบบ</small></span></button>
       </aside>
       <div class="workspace-main">
@@ -1100,6 +1109,7 @@ function bindCommon() {
 function render() {
   if (!token || page === "home") return loginView();
   if (page === "admin") return adminView();
+  if (page === "sales" && role === "admin") return salesView();
   return uploadView();
 }
 
