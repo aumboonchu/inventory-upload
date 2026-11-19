@@ -29,6 +29,8 @@ let uploadReadVersion = 0;
 let sidebarHidden = localStorage.getItem("inventory_sidebar_hidden") === "true";
 
 function adminIcon(name) {
+  // Lucide Package; license: assets/Lucide-LICENSE.txt.
+  if (name === "inventory") return '<span class="workspace-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><polyline points="3.29 7 12 12 20.71 7"/><path d="m7.5 4.27 9 5.15"/></svg></span>';
   if (name === "sales") return '<span class="workspace-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21v-6"/><path d="M12 21V9"/><path d="M19 21V3"/></svg></span>';
   const assets = { settings: "e7977", "settings-muted": "0d2f1", "settings-small": "f22e1", "settings-login": "94fcc", "settings-note": "8479a", download: "34023", "download-muted": "2550a", refresh: "8aabe", search: "c79ca", clock: "fa1f6", "clock-upload": "098ef" };
   return `<span class="workspace-icon icon-${escapeHtml(name)}" aria-hidden="true"><img src="assets/fresh-${assets[name] || assets.settings}.svg" alt=""></span>`;
@@ -87,13 +89,14 @@ async function api(path, options = {}) {
 
 function shell(content, active = role) {
   const isAdmin = role === "admin";
-  const links = isAdmin ? ["admin", "sales", ...supplierKeys] : [role];
-  const label = active === "sales" ? "ยอดขาย" : isAdmin ? adminPageTitle : vendorLabel[role] + " upload";
+  const adminLinks = { admin: "PR", inventory: "Inventory", sales: "ยอดขาย" };
+  const links = isAdmin ? [...Object.keys(adminLinks).filter(key => key !== "inventory" || !privateStockPage), ...supplierKeys] : [role];
+  const label = isAdmin ? (active === "admin" ? adminPageTitle : adminLinks[active]) : vendorLabel[role] + " upload";
   const navLink = (key) => {
-    const adminPage = key === "admin" || key === "sales";
+    const adminPage = Object.hasOwn(adminLinks, key);
     const href = adminPage ? key + ".html" : "upload-" + key + ".html";
-    const text = key === "admin" ? "PR" : key === "sales" ? "ยอดขาย" : vendorLabel[key];
-    const icon = key === "sales" ? "sales" : key === "admin" ? (active === key ? "settings" : "settings-muted") : active === key ? "download" : "download-muted";
+    const text = adminPage ? adminLinks[key] : vendorLabel[key];
+    const icon = key === "sales" || key === "inventory" ? key : key === "admin" ? (active === key ? "settings" : "settings-muted") : active === key ? "download" : "download-muted";
     return '<a href="' + href + '"' + (active === key ? ' class="active" aria-current="page"' : "") + ">" + adminIcon(icon) + "<span>" + text + "</span></a>";
   };
   return html`
@@ -703,7 +706,7 @@ async function adminView(status = "") {
     data = lastAdminData || { parts: [], uploads: [] };
   }
   app.innerHTML = shell(html`
-    <section class="workspace-heading"><div><h1>${adminPageTitle}</h1><p>สต็อกล่าสุดจากทุก Supplier</p></div><div class="heading-actions">${showJibStock ? '<button class="button secondary" id="jibStockUploadBtn" type="button"><img class="stock-upload-icon" src="assets/upload.svg" width="16" height="16" alt="">อัปโหลดสต็อก Excel</button>' : ""}<button class="button secondary icon-button" id="refreshBtn" type="button" title="Refresh" aria-label="Refresh">${adminIcon("refresh")}</button><button class="button primary" id="exportBtn" type="button">${adminIcon("download")}Export CSV</button></div></section>
+    <section class="workspace-heading"><div><h1>${adminPageTitle}</h1><p>สต็อกล่าสุดจากทุก Supplier</p></div><div class="heading-actions">${privateStockPage ? jibStockUploadButton() : ""}<button class="button secondary icon-button" id="refreshBtn" type="button" title="Refresh" aria-label="Refresh">${adminIcon("refresh")}</button><button class="button primary" id="exportBtn" type="button">${adminIcon("download")}Export CSV</button></div></section>
     <section class="order-summary" aria-label="สรุปสถานะสั่งซื้อ">${[["all", "Part ทั้งหมด"], ["pending", "ยังไม่สั่ง"], ["partial", "สั่งบาง Supplier"], ["complete", "สั่งครบแล้ว"]].map(([key, label]) => `<div class="summary-${key}"><strong data-order-count="${key}">${key === "all" ? data.parts.length : data.parts.filter((p) => orderStateFor(p).key === key).length}</strong><span>${label}</span></div>`).join("")}</section>
     ${latestUploadsView(data.uploads)}
     <section class="admin-workspace">
@@ -723,7 +726,7 @@ async function adminView(status = "") {
       <div class="admin-footer"><span>${adminIcon("clock")}อัปเดตล่าสุด ${escapeHtml(formatDateTime(data.updatedAt))}</span>${inventoryResultSummary(data.parts)}</div>
     </section>
     ${passwordDialogMarkup("adminPasswordDialog", "Admin")}
-    ${showJibStock ? jibStockUploadDialog() : ""}
+    ${privateStockPage ? jibStockUploadDialog() : ""}
   `, "admin");
   bindCommon();
   bindAdminPasswordReset();
@@ -735,7 +738,7 @@ async function adminView(status = "") {
   bindAdminProductFilter();
   document.querySelector("#searchBox").addEventListener("input", (event) => { adminSearchQuery = event.currentTarget.value; renderAdminTableIntoView(); });
   document.querySelector("#exportBtn").addEventListener("click", exportAdminCsv);
-  if (showJibStock) bindJibStockUpload();
+  if (privateStockPage) bindJibStockUpload(adminView);
   bindPasswordDialog("#adminPasswordBtn", "#adminPasswordDialog");
   const menu = document.querySelector("#adminManagement");
   menu.addEventListener("keydown", (event) => { if (event.key === "Escape") { menu.open = false; menu.querySelector("summary").focus(); } });
@@ -758,6 +761,10 @@ function jibStockUploadSummary(data) {
     <span>อัปโหลด ${escapeHtml(formatDateTime(upload.uploadedAt))}</span>
     <span class="badge ${upload.matchedCount ? "" : "badge-amber"}">ตรงกับ Allocation ${escapeHtml(upload.matchedCount)}/${escapeHtml(upload.allocationCount)} Part</span>
   </div>`;
+}
+
+function jibStockUploadButton(primary = false) {
+  return `<button class="button ${primary ? "primary" : "secondary"}" id="jibStockUploadBtn" type="button"><img class="stock-upload-icon" src="assets/upload.svg" width="16" height="16" alt="">อัปโหลดสต็อก Excel</button>`;
 }
 
 function jibStockUploadDialog() {
@@ -795,7 +802,7 @@ async function readJibStockWorkbook(file) {
   }
 }
 
-function bindJibStockUpload() {
+function bindJibStockUpload(onSaved) {
   const dialog = document.querySelector("#jibStockUploadDialog");
   const form = dialog.querySelector("form");
   const input = dialog.querySelector("#jibStockFile");
@@ -836,7 +843,7 @@ function bindJibStockUpload() {
       if (!jibStockUpload) throw new Error("บันทึก JIB Stock ไม่สำเร็จ");
       if (token !== uploadToken) return;
       dialog.close();
-      await adminView(statusMessage(`อัปโหลด JIB Stock แล้ว: ${jibStockUpload.partCount} Part จับคู่ Allocation ได้ ${jibStockUpload.matchedCount} Part`));
+      await onSaved(statusMessage(`อัปโหลด JIB Stock แล้ว: ${jibStockUpload.partCount} Part จับคู่ Allocation ได้ ${jibStockUpload.matchedCount} Part`));
     } catch (error) {
       if (token !== uploadToken) return;
       if (error.status === 401 || (privateStockPage && error.status === 403)) {
@@ -1154,10 +1161,31 @@ function bindCommon() {
 function render() {
   if (!token || page === "home") return loginView();
   if (page === "admin") return adminView();
+  if (page === "inventory" && role === "admin") return inventoryView();
   if (page === "sales" && role === "admin") return salesView();
   return uploadView();
 }
 
+if (!privateStockPage && ["inventory", "admin"].includes(page)) {
+  const sessionKey = "inventory_token_admin";
+  const syncAdminPage = () => {
+    token = localStorage.getItem(sessionKey) || "";
+    lastAdminData = null;
+    adminLoadVersion++;
+    closePartDetail();
+    app.replaceChildren();
+    render();
+  };
+  window.addEventListener("storage", event => {
+    if ((event.key === sessionKey || event.key === null) && token !== (localStorage.getItem(sessionKey) || "")) syncAdminPage();
+  });
+  window.addEventListener("pagehide", () => {
+    if (page !== "inventory") return;
+    adminLoadVersion++;
+    app.replaceChildren();
+  });
+  window.addEventListener("pageshow", event => { if (event.persisted) syncAdminPage(); });
+}
 render();
 
 
