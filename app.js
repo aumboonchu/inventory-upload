@@ -5,6 +5,7 @@ const role = document.body.dataset.vendor || "admin";
 const privateStockPage = window.APP_CONFIG?.showJibStock === true;
 const showJibStock = page === "admin" && role === "admin" &&
   (privateStockPage || document.body.dataset.jibStock === "true");
+const showAdminSales30 = page === "admin" && role === "admin" && !privateStockPage;
 const vendorLabel = { synnex: "Synnex", vst: "VST", ais: "AIS", admin: "Admin" };
 const supplierKeys = ["synnex", "vst", "ais"];
 const app = document.querySelector("#app");
@@ -67,7 +68,7 @@ function formatDateTime(value) {
 
 async function api(path, options = {}) {
   const privateRequest = path === "/api/admin/parts" || path === "/api/admin/jib-stock";
-  const salesRequest = path.split("?")[0] === "/api/admin/sales";
+  const salesRequest = path.split("?")[0] === "/api/admin/sales" || path === "/api/admin/sales/last-30";
   const url = privateStockPage && privateRequest ? path : apiBaseUrl + path;
   const res = await fetch(url, {
     ...options,
@@ -584,13 +585,14 @@ function supplierFilterControls() {
   `;
 }
 
-function renderAdminTable(parts, query = "") {
+function renderAdminTable({ parts, sales30Totals }, query = "") {
   const suppliers = getActiveAdminSuppliers();
-  return `<table class="supplier-visible-${suppliers.length}"><thead><tr>
+  return `<table class="supplier-visible-${suppliers.length}${showAdminSales30 ? " has-sales-30" : ""}"><thead><tr>
     <th class="part-column" scope="col">Part No. / สถานะ</th><th class="description-column" scope="col">Description</th>
     ${showJibStock ? '<th class="jib-stock-column" scope="col">JIB Stock</th>' : ""}
+    ${showAdminSales30 ? '<th class="sales-30-column" scope="col">ยอดขาย 30 วัน<small>ทุกสาขา · ชิ้น / บาท</small></th>' : ""}
     ${suppliers.map((supplier) => `<th class="supplier-column" scope="col">${vendorLabel[supplier]}<small>Qty · Price ex VAT</small></th>`).join("")}
-    </tr></thead><tbody id="adminBody">${adminRows(parts, query, suppliers)}</tbody></table>`;
+    </tr></thead><tbody id="adminBody">${adminRows(parts, query, suppliers, sales30Totals)}</tbody></table>`;
 }
 
 function filteredAdminParts(parts, query = "") {
@@ -602,18 +604,58 @@ function filteredAdminParts(parts, query = "") {
     .filter((part) => adminOrderFilter === "all" || orderStateFor(part).key === adminOrderFilter);
 }
 
-function adminRows(parts, query = "", suppliers = getActiveAdminSuppliers()) {
+function adminRows(parts, query, suppliers, sales30Totals) {
   const rows = filteredAdminParts(parts, query);
-  if (!rows.length) return `<tr><td class="inventory-empty" colspan="${(showJibStock ? 3 : 2) + suppliers.length}">ไม่พบรายการสินค้า</td></tr>`;
+  const columns = 2 + Number(showJibStock) + Number(showAdminSales30) + suppliers.length;
+  if (!rows.length) return `<tr><td class="inventory-empty" colspan="${columns}">ไม่พบรายการสินค้า</td></tr>`;
   return rows.map((part) => {
     const available = suppliers.filter((supplier) => part[supplier]).length;
     return `<tr class="inventory-row state-${orderStateFor(part).key}" style="--supplier-count:${Math.max(available, 1)}">
       <td class="part-cell"><button class="part-link" data-part-no="${escapeHtml(part.partNo)}" type="button">${escapeHtml(part.partNo)}</button>${orderStateCell(part)}</td>
       <td class="description-cell">${escapeHtml(part.description || "—")}</td>
       ${showJibStock ? `<td class="jib-stock-cell"><span class="jib-stock-label">JIB Stock</span><span class="jib-stock-value">${Number.isSafeInteger(part.jibStock) ? stockNumber.format(part.jibStock) : "—"}</span></td>` : ""}
+      ${showAdminSales30 ? adminSales30Cell(part.partNo, sales30Totals) : ""}
       ${suppliers.map((supplier) => `<td class="supplier-cell ${part[supplier] ? "" : "no-inventory"}" data-supplier="${vendorLabel[supplier]}">${vendorCell(part[supplier], part, supplier)}</td>`).join("")}
     </tr>`;
   }).join("");
+}
+
+function sales30Numbers(total) {
+  if (!total) return '<span class="empty">—</span>';
+  return `<strong class="sales-30-units">${stockNumber.format(total.units)} ชิ้น</strong><span class="sales-30-amount">${formatMoney(total.satang / 100)}</span>`;
+}
+
+function adminSales30Cell(partNo, totals) {
+  const key = normalizePartNo(partNo);
+  return `<td class="sales-30-cell" data-sales30-part="${escapeHtml(key)}"><span class="sales-30-label">ยอดขาย 30 วัน · ทุกสาขา</span><div class="sales-30-numbers">${sales30Numbers(totals?.get(key))}</div></td>`;
+}
+
+async function loadAdminSales30(data, version) {
+  const note = document.querySelector("#sales30Window");
+  const current = () => version === adminLoadVersion && data === lastAdminData && note?.isConnected;
+  try {
+    const result = await api("/api/admin/sales/last-30", { signal: AbortSignal.timeout(15000) });
+    if (!current()) return;
+    const { from, to, daysWithRows, totals } = result;
+    const iso = /^\d{4}-\d{2}-\d{2}$/;
+    if (!result.ok || !iso.test(from) || !iso.test(to) ||
+        !Number.isInteger(daysWithRows) || daysWithRows < 0 || daysWithRows > 30 || !Array.isArray(totals)) {
+      throw new Error("Invalid sales summary");
+    }
+    data.sales30Totals = new Map(totals.map((total) => {
+      if (typeof total.partNo !== "string" || !Number.isSafeInteger(total.units) || !Number.isSafeInteger(total.satang)) {
+        throw new Error("Invalid sales total");
+      }
+      return [total.partNo, total];
+    }));
+    for (const cell of document.querySelectorAll("[data-sales30-part]")) {
+      cell.querySelector(".sales-30-numbers").innerHTML = sales30Numbers(data.sales30Totals.get(cell.dataset.sales30Part));
+    }
+    const date = (value) => value.split("-").reverse().join("-");
+    note.textContent = `ยอดขายทุกสาขา ${date(from)} ถึง ${date(to)} · ${daysWithRows ? `มีรายการที่นำเข้า ${daysWithRows}/30 วัน` : "ไม่มีรายการที่นำเข้าในช่วงนี้"}`;
+  } catch {
+    if (current()) note.textContent = "โหลดยอดขาย 30 วันไม่ได้";
+  }
 }
 
 function inventoryResultSummary(parts) {
@@ -675,7 +717,8 @@ async function adminView(status = "") {
       <div class="admin-order-bar">${orderFilterControl()}<span id="visiblePartsCount" class="hint">${filteredAdminParts(data.parts, adminSearchQuery).length} parts</span></div>
       ${status}
       ${showJibStock ? jibStockUploadSummary(data) : ""}
-      <div class="table-wrap admin-table" id="adminTableWrap" tabindex="0" role="region" aria-label="ตาราง inventory">${renderAdminTable(data.parts, adminSearchQuery)}</div>
+      ${showAdminSales30 ? `<p class="sales-30-window hint" id="sales30Window" role="status">${data === lastAdminData ? "กำลังโหลดยอดขาย 30 วัน…" : "โหลดยอดขาย 30 วันไม่ได้"}</p>` : ""}
+      <div class="table-wrap admin-table" id="adminTableWrap" tabindex="0" role="region" aria-label="ตาราง inventory">${renderAdminTable(data, adminSearchQuery)}</div>
       <div class="admin-footer"><span>${adminIcon("clock")}อัปเดตล่าสุด ${escapeHtml(formatDateTime(data.updatedAt))}</span>${inventoryResultSummary(data.parts)}</div>
     </section>
     ${passwordDialogMarkup("adminPasswordDialog", "Admin")}
@@ -699,6 +742,7 @@ async function adminView(status = "") {
   bindPartDetailLinks();
   bindPartOrderToggles();
   bindPartDetailModalEvents();
+  if (showAdminSales30 && data === lastAdminData) void loadAdminSales30(data, version);
 }
 
 function jibStockUploadSummary(data) {
@@ -846,7 +890,7 @@ function renderAdminTableIntoView() {
   const query = document.querySelector("#searchBox")?.value || "";
   const tableWrap = document.querySelector("#adminTableWrap");
   if (!tableWrap || !lastAdminData) return;
-  tableWrap.innerHTML = renderAdminTable(lastAdminData.parts, query);
+  tableWrap.innerHTML = renderAdminTable(lastAdminData, query);
   updateAdminCounts();
   bindPartDetailLinks();
   bindPartOrderToggles();

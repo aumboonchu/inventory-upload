@@ -153,6 +153,7 @@ th { padding: 12px; color: var(--muted); font-size: 9px; font-weight: 700; text-
 th small { display: block; font-size: 8px; font-weight: 400; text-transform: none; margin-top: 2px; }
 .part-column { width: 160px; }
 .jib-stock-column { width: 104px; }
+.sales-30-column { width: 144px; }
 .supplier-column { width: 176px; }
 td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
 .inventory-row { height: 76px; }
@@ -169,6 +170,10 @@ td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; o
 .jib-stock-cell { font-size: 12px; line-height: 20px; }
 .jib-stock-label { display: none; }
 .jib-stock-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sales-30-window { margin: 0 0 12px; }
+.sales-30-label { display: none; }
+.sales-30-numbers { display: grid; gap: 2px; font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.sales-30-amount { color: var(--muted); font-size: 11px; }
 .jib-stock-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; padding: 12px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .jib-stock-summary strong { color: var(--ink); }
 .jib-stock-filename { min-width: 0; overflow-wrap: anywhere; }
@@ -287,6 +292,11 @@ dialog::backdrop { background: #18221d73; backdrop-filter: blur(3px); }
 @keyframes arrive { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes reading { to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+@media (min-width: 761px) {
+  .admin-table table.has-sales-30.supplier-visible-1 { min-width: 772px; }
+  .admin-table table.has-sales-30.supplier-visible-2 { min-width: 948px; }
+  .admin-table table.has-sales-30.supplier-visible-3 { min-width: 1124px; }
+}
 @media (max-width: 1180px) {
   .order-summary > div { flex-direction: column; align-items: flex-start; gap: 0; }
   .latest-card { gap: 8px; padding: 12px; }
@@ -349,6 +359,9 @@ dialog::backdrop { background: #18221d73; backdrop-filter: blur(3px); }
   .description-cell { grid-column: 1 / -1; font-size: 13px; line-height: 21px; margin: 12px 0 16px; }
   .admin-table .jib-stock-cell { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
   .jib-stock-label { display: inline; color: var(--muted); font-size: 11px; font-weight: 600; }
+  .admin-table .sales-30-cell { grid-column: 1 / -1; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 12px; }
+  .sales-30-label { display: inline; color: var(--muted); font-size: 11px; font-weight: 600; }
+  .sales-30-numbers { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
   .admin-table .supplier-cell { padding: 14px 12px; background: var(--canvas); }
   .supplier-cell::before { content: attr(data-supplier); display: block; color: var(--muted); font-size: 10px; font-weight: 700; margin-bottom: 6px; }
   .admin-table .supplier-cell.no-inventory { display: none; }
