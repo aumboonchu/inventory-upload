@@ -91,7 +91,7 @@ function shell(content, active = role) {
   const navLink = (key) => {
     const adminPage = key === "admin" || key === "sales";
     const href = adminPage ? key + ".html" : "upload-" + key + ".html";
-    const text = key === "admin" ? "Inventory" : key === "sales" ? "ยอดขาย" : vendorLabel[key];
+    const text = key === "admin" ? "PR" : key === "sales" ? "ยอดขาย" : vendorLabel[key];
     const icon = key === "sales" ? "sales" : key === "admin" ? (active === key ? "settings" : "settings-muted") : active === key ? "download" : "download-muted";
     return '<a href="' + href + '"' + (active === key ? ' class="active" aria-current="page"' : "") + ">" + adminIcon(icon) + "<span>" + text + "</span></a>";
   };
