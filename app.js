@@ -6,6 +6,7 @@ const privateStockPage = window.APP_CONFIG?.showJibStock === true;
 const showJibStock = page === "admin" && role === "admin" &&
   (privateStockPage || document.body.dataset.jibStock === "true");
 const showAdminSales30 = page === "admin" && role === "admin" && !privateStockPage;
+const adminPageTitle = "Combined Allocation";
 const vendorLabel = { synnex: "Synnex", vst: "VST", ais: "AIS", admin: "Admin" };
 const supplierKeys = ["synnex", "vst", "ais"];
 const app = document.querySelector("#app");
@@ -87,7 +88,7 @@ async function api(path, options = {}) {
 function shell(content, active = role) {
   const isAdmin = role === "admin";
   const links = isAdmin ? ["admin", "sales", ...supplierKeys] : [role];
-  const label = active === "sales" ? "ยอดขาย" : isAdmin ? "Combined inventory" : vendorLabel[role] + " upload";
+  const label = active === "sales" ? "ยอดขาย" : isAdmin ? adminPageTitle : vendorLabel[role] + " upload";
   const navLink = (key) => {
     const adminPage = key === "admin" || key === "sales";
     const href = adminPage ? key + ".html" : "upload-" + key + ".html";
@@ -702,7 +703,7 @@ async function adminView(status = "") {
     data = lastAdminData || { parts: [], uploads: [] };
   }
   app.innerHTML = shell(html`
-    <section class="workspace-heading"><div><h1>Combined inventory</h1><p>สต็อกล่าสุดจากทุก Supplier ในมุมมองเดียว</p></div><div class="heading-actions">${showJibStock ? '<button class="button secondary" id="jibStockUploadBtn" type="button"><img class="stock-upload-icon" src="assets/upload.svg" width="16" height="16" alt="">อัปโหลดสต็อก Excel</button>' : ""}<button class="button secondary icon-button" id="refreshBtn" type="button" title="Refresh" aria-label="Refresh">${adminIcon("refresh")}</button><button class="button primary" id="exportBtn" type="button">${adminIcon("download")}Export CSV</button></div></section>
+    <section class="workspace-heading"><div><h1>${adminPageTitle}</h1><p>สต็อกล่าสุดจากทุก Supplier</p></div><div class="heading-actions">${showJibStock ? '<button class="button secondary" id="jibStockUploadBtn" type="button"><img class="stock-upload-icon" src="assets/upload.svg" width="16" height="16" alt="">อัปโหลดสต็อก Excel</button>' : ""}<button class="button secondary icon-button" id="refreshBtn" type="button" title="Refresh" aria-label="Refresh">${adminIcon("refresh")}</button><button class="button primary" id="exportBtn" type="button">${adminIcon("download")}Export CSV</button></div></section>
     <section class="order-summary" aria-label="สรุปสถานะสั่งซื้อ">${[["all", "Part ทั้งหมด"], ["pending", "ยังไม่สั่ง"], ["partial", "สั่งบาง Supplier"], ["complete", "สั่งครบแล้ว"]].map(([key, label]) => `<div class="summary-${key}"><strong data-order-count="${key}">${key === "all" ? data.parts.length : data.parts.filter((p) => orderStateFor(p).key === key).length}</strong><span>${label}</span></div>`).join("")}</section>
     ${latestUploadsView(data.uploads)}
     <section class="admin-workspace">
