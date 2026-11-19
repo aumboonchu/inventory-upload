@@ -590,7 +590,7 @@ function renderAdminTable({ parts, sales30Totals }, query = "") {
   return `<table class="supplier-visible-${suppliers.length}${showAdminSales30 ? " has-sales-30" : ""}"><thead><tr>
     <th class="part-column" scope="col">Part No. / สถานะ</th><th class="description-column" scope="col">Description</th>
     ${showJibStock ? '<th class="jib-stock-column" scope="col">JIB Stock</th>' : ""}
-    ${showAdminSales30 ? '<th class="sales-30-column" scope="col">ยอดขาย 30 วัน<small>ทุกสาขา · ชิ้น / บาท</small></th>' : ""}
+    ${showAdminSales30 ? '<th class="sales-30-column" scope="col">ยอดขาย 30 วัน<small>ทุกสาขา</small></th>' : ""}
     ${suppliers.map((supplier) => `<th class="supplier-column" scope="col">${vendorLabel[supplier]}<small>Qty · Price ex VAT</small></th>`).join("")}
     </tr></thead><tbody id="adminBody">${adminRows(parts, query, suppliers, sales30Totals)}</tbody></table>`;
 }
@@ -622,7 +622,7 @@ function adminRows(parts, query, suppliers, sales30Totals) {
 
 function sales30Numbers(total) {
   if (!total) return '<span class="empty">—</span>';
-  return `<strong class="sales-30-units">${stockNumber.format(total.units)} ชิ้น</strong><span class="sales-30-amount">${formatMoney(total.satang / 100)}</span>`;
+  return `<strong class="sales-30-units">${stockNumber.format(total.units)}</strong>`;
 }
 
 function adminSales30Cell(partNo, totals) {
@@ -643,7 +643,7 @@ async function loadAdminSales30(data, version) {
       throw new Error("Invalid sales summary");
     }
     data.sales30Totals = new Map(totals.map((total) => {
-      if (typeof total.partNo !== "string" || !Number.isSafeInteger(total.units) || !Number.isSafeInteger(total.satang)) {
+      if (typeof total.partNo !== "string" || !Number.isSafeInteger(total.units)) {
         throw new Error("Invalid sales total");
       }
       return [total.partNo, total];
