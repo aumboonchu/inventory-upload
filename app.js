@@ -71,7 +71,7 @@ function formatDateTime(value) {
 
 async function api(path, options = {}) {
   const privateRequest = path === "/api/admin/parts" || path === "/api/admin/jib-stock";
-  const salesRequest = path.split("?")[0] === "/api/admin/sales" || path === "/api/admin/sales/last-30";
+  const salesRequest = ["/api/admin/sales","/api/admin/sales/last-30"].includes(path.split("?")[0]);
   const url = privateStockPage && privateRequest ? path : apiBaseUrl + path;
   const res = await fetch(url, {
     ...options,
@@ -634,24 +634,53 @@ function adminSales30Cell(partNo, totals) {
   return `<td class="sales-30-cell" data-sales30-part="${escapeHtml(key)}"><span class="sales-30-label">ยอดขาย 30 วัน · ทุกสาขา</span><div class="sales-30-numbers">${sales30Numbers(totals?.get(key))}</div></td>`;
 }
 
+async function readSalesPages(path, params, current, signal, consume) {
+  const query = new URLSearchParams(params);
+  let first, after = 0, through;
+  for (;;) {
+    if (!current()) throw new Error("View changed");
+    const timeout = AbortSignal.timeout(45000);
+    const data = await api(path + (query.size ? "?" + query : ""), {
+      headers: {Accept:"application/vnd.jib.sales-pages+json"},
+      signal: signal ? AbortSignal.any([signal,timeout]) : timeout
+    });
+    if (!current() || !data.ok) throw new Error("Invalid sales page");
+    first ??= data;
+    if (data.month !== first.month || data.from !== first.from || data.to !== first.to) throw new Error("Sales period changed");
+    consume(data);
+    if (!data.next) return first;
+    const next = data.next;
+    if (!Number.isSafeInteger(next.after) || !Number.isSafeInteger(next.through) ||
+        next.after <= after || next.after >= next.through || (through !== undefined && next.through !== through)) throw new Error("Invalid sales cursor");
+    after=next.after; through=next.through;
+    query.set("after",after); query.set("through",through);
+    if (data.month) query.set("month",data.month);
+    if (data.to) query.set("asOf",data.to);
+  }
+}
+
 async function loadAdminSales30(data, version) {
   const note = document.querySelector("#sales30Window");
   const current = () => version === adminLoadVersion && data === lastAdminData && note?.isConnected;
   try {
-    const result = await api("/api/admin/sales/last-30", { signal: AbortSignal.timeout(15000) });
-    if (!current()) return;
-    const { from, to, daysWithRows, totals } = result;
     const iso = /^\d{4}-\d{2}-\d{2}$/;
-    if (!result.ok || !iso.test(from) || !iso.test(to) ||
-        !Number.isInteger(daysWithRows) || daysWithRows < 0 || daysWithRows > 30 || !Array.isArray(totals)) {
-      throw new Error("Invalid sales summary");
-    }
-    data.sales30Totals = new Map(totals.map((total) => {
-      if (typeof total.partNo !== "string" || !Number.isSafeInteger(total.units)) {
-        throw new Error("Invalid sales total");
+    const merged=new Map(), days=new Set();
+    const result=await readSalesPages("/api/admin/sales/last-30",{},current,null,part => {
+      if (!iso.test(part.from) || !iso.test(part.to) || !Array.isArray(part.totals) ||
+          !Number.isInteger(part.daysWithRows) || part.daysWithRows < 0 || part.daysWithRows > 30) throw new Error("Invalid sales summary");
+      for (const day of part.dates || []) {
+        if (!iso.test(day) || day<part.from || day>part.to) throw new Error("Invalid sales date");
+        days.add(day);
       }
-      return [total.partNo, total];
-    }));
+      for (const total of part.totals) {
+        const n=(merged.get(total.partNo)?.units || 0)+total.units;
+        if (typeof total.partNo !== "string" || !Number.isSafeInteger(total.units) || !Number.isSafeInteger(n)) throw new Error("Invalid sales total");
+        merged.set(total.partNo,{units:n});
+      }
+    });
+    if (!current()) return;
+    const {from,to}=result, daysWithRows=Array.isArray(result.dates) ? days.size : result.daysWithRows;
+    data.sales30Totals=merged;
     for (const cell of document.querySelectorAll("[data-sales30-part]")) {
       cell.querySelector(".sales-30-numbers").innerHTML = sales30Numbers(data.sales30Totals.get(cell.dataset.sales30Part));
     }

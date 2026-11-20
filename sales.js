@@ -1,7 +1,9 @@
 (() => {
   "use strict";
   const endpoint = "/api/admin/sales";
-  const workerUrl = "assets/sales-worker.js?v=20261119-sales-1";
+  const workerUrl = "assets/sales-worker.js?v=20261120-sales100k-1";
+  const maxFileBytes = 64 * 1024 * 1024, maxFileRows = 100000;
+  const previewTimeout = 5 * 60 * 1000;
   const tokenKey = "inventory_token_admin";
   const privateRequest = { cache: "no-store", credentials: "omit", redirect: "error" };
   const countFormat = new Intl.NumberFormat("th-TH", { maximumFractionDigits: 8 });
@@ -28,22 +30,29 @@
   const icon = name => `<span aria-hidden="true" class="sales-icon sales-icon-${name}"></span>`;
   let current = null;
 
-  function cleanRow(r, forUpload) {
-    if (!r || !dateOk(r.date) || !Number.isSafeInteger(r.satang) || !Number.isSafeInteger(r.units) ||
-        !["string", "number"].includes(typeof r.product) || !String(r.product).trim() ||
-        (forUpload && (typeof r.key !== "string" || !/^[a-f\d]{64}$/i.test(r.key)))) {
+  const uploadMonthOk = m => monthOk(m) && /^(?:19|20|21)/.test(m);
+  const uploadTextOk = (v, max) => typeof v === "string" && v.length <= max && v.trim() !== "" && !/[\x00-\x1f\x7f]/.test(v);
+
+  function cleanRow(r, forUpload, index) {
+    const valid = r && dateOk(r.date) && Number.isSafeInteger(r.satang) && Number.isSafeInteger(r.units);
+    if (forUpload && (!valid || !uploadMonthOk(r.date.slice(0,7)) ||
+        !uploadTextOk(r.branchId,60) || !uploadTextOk(r.branch,180) || !uploadTextOk(r.product,120) ||
+        !uploadTextOk(r.name,400) || !uploadTextOk(r.category,150) || Math.abs(r.units) > 1e7 ||
+        Math.abs(r.satang) > 1e12 || typeof r.key !== "string" || !/^[a-f\d]{64}$/.test(r.key))) {
+      throw new Error("ข้อมูลยอดขายไม่ถูกต้องที่รายการ " + count(index + 1));
+    }
+    if (!valid || !["string", "number"].includes(typeof r.product) || !String(r.product).trim()) {
       throw new Error("พบรายการที่มีวันที่ รหัสสินค้า จำนวนชิ้น หรือยอดขายไม่ถูกต้อง");
     }
     const row = { date: r.date, branchId: String(r.branchId ?? ""), branch: String(r.branch ?? ""),
       product: String(r.product), name: String(r.name ?? ""), category: String(r.category ?? ""),
       units: r.units, satang: r.satang };
-    if (forUpload) row.key = r.key.toLowerCase();
+    if (forUpload) row.key = r.key;
     return row;
   }
 
   function stopWorker(draft) {
     if (!draft) return;
-    clearTimeout(draft.timer);
     if (draft.worker) {
       draft.worker.onmessage = draft.worker.onerror = draft.worker.onmessageerror = null;
       draft.worker.terminate();
@@ -53,6 +62,7 @@
 
   function dropDraft(s) {
     if (!s.draft) return;
+    clearTimeout(s.draft.timer);
     stopWorker(s.draft);
     s.draft.request?.abort();
     s.draft.rows = null;
@@ -115,7 +125,7 @@
       <p class="dialog-note">เพิ่มเฉพาะบรรทัดใหม่ ข้ามรายการซ้ำทั้งในไฟล์นี้และไฟล์ก่อนหน้า โดยไม่แทนที่ยอดขายเดิมของวันนั้น</p>
       <div class="sales-file-box">
         <b class="sales-file-mark" aria-hidden="true">XLSX</b>
-        <div><strong id="salesFileName">ยังไม่ได้เลือกไฟล์</strong><small>.xlsx ไม่เกิน 8 MB และ 5,000 แถวข้อมูล</small></div>
+        <div><strong id="salesFileName">ยังไม่ได้เลือกไฟล์</strong><small>.xlsx 1 ไฟล์ ไม่เกิน 64 MiB และ 100,000 แถวข้อมูล</small></div>
         <button id="salesChoose" class="button secondary" type="button">เลือกไฟล์</button>
         <input id="salesFile" type="file" accept=".xlsx" aria-label="ไฟล์ยอดขาย Excel" hidden>
       </div>
@@ -181,7 +191,6 @@
     const restoreMonthFocus = document.activeElement?.id === "salesMonth";
     s.get?.abort();
     const req = s.get = new AbortController();
-    const timeout = setTimeout(() => req.abort(), 45000);
     s.data = s.filters = s.model = null;
     s.month = month;
     s.day = "";
@@ -195,12 +204,18 @@
     filtersMarkup(s);
     if (restoreMonthFocus) el("salesMonth")?.focus();
     try {
-      const result = await api(endpoint + (month ? "?month=" + encodeURIComponent(month) : ""), { ...privateRequest, signal: req.signal });
+      const rows=[];
+      const result=await readSalesPages(endpoint,month ? {month} : {},() => active(s) && req===s.get,req.signal,page => {
+        if (!Array.isArray(page.rows)) throw new Error("Invalid sales page");
+        for (const raw of page.rows) {
+          const row=cleanRow(raw,false);
+          if (!row.date.startsWith(page.month + "-")) throw new Error("Invalid sales date");
+          rows.push(row);
+        }
+      });
       if (!active(s) || req !== s.get) return;
       if (result?.ok !== true || !Array.isArray(result.rows) || !Array.isArray(result.months) ||
           !(monthOk(result.month) || (result.month === "" && result.rows.length === 0))) throw new Error();
-      const rows = result.rows.map(r => cleanRow(r, false));
-      if (rows.some(r => !r.date.startsWith(result.month + "-"))) throw new Error();
       const months = result.months.filter(monthOk);
       if (result.month) months.push(result.month);
       s.months = Array.from(new Set(months)).sort().reverse();
@@ -224,7 +239,6 @@
       el("salesResults").innerHTML = `<div class="sales-state" role="alert"><h2>โหลดข้อมูลยอดขายไม่สำเร็จ</h2>
         <p>ตรวจสอบการเชื่อมต่อ แล้วลองโหลดอีกครั้ง</p><button id="salesRetry" class="button secondary" type="button">${icon("reload")}ลองอีกครั้ง</button></div>`;
     } finally {
-      clearTimeout(timeout);
       if (current === s && req === s.get) {
         s.get = null;
         el("salesReload").disabled = false;
@@ -394,6 +408,7 @@
     el("salesPreview").replaceChildren();
     feedback();
     el("salesCancel").disabled = el("salesChoose").disabled = false;
+    el("salesCancel").textContent = "ยกเลิก";
     el("salesConfirm").disabled = true;
     el("salesConfirm").innerHTML = icon("upload") + "ยืนยันนำเข้า";
   }
@@ -405,57 +420,79 @@
     el("salesChoose").focus();
   }
 
-  function preview(rows) {
-    const keys = new Set();
-    let first = rows[0].date, last = first, total = 0;
-    for (const row of rows) {
-      if (row.date < first) first = row.date;
+  function previewMoney(satang) {
+    const abs = satang < 0n ? -satang : satang;
+    return (satang < 0n ? "-" : "") + count(abs / 100n) + "." + String(abs % 100n).padStart(2, "0");
+  }
+
+  async function preview(rows, isCurrent) {
+    const keys = new Set(), months = new Set();
+    let first = "", last = "", total = 0n, units = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (i && i % 2500 === 0) {
+        feedback("กำลังตรวจสอบ " + count(i) + " / " + count(rows.length) + " แถว…");
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (!isCurrent()) return;
+      }
+      const row = rows[i] = cleanRow(rows[i], true, i);
+      months.add(row.date.slice(0,7));
+      if (months.size > 12) throw new Error("ไฟล์ต้องมีข้อมูลไม่เกิน 12 เดือน");
+      if (!first || row.date < first) first = row.date;
       if (row.date > last) last = row.date;
-      if (keys.has(row.key)) continue;
-      keys.add(row.key);
-      total += row.satang;
+      if (!keys.has(row.key)) {
+        keys.add(row.key);
+        total += BigInt(row.satang);
+        units += row.units;
+      }
     }
     const range = dateText(first) + (first !== last ? " – " + dateText(last) : "");
     return `<h3>ตรวจสอบก่อนนำเข้า</h3><dl class="sales-preview-list">
       <div><dt>ช่วงวันที่ในไฟล์</dt><dd>${range}</dd></div>
       <div><dt>จำนวนแถวทั้งหมด</dt><dd data-preview="rows">${count(rows.length)}</dd></div>
       <div><dt>แถวซ้ำภายในไฟล์</dt><dd data-preview="duplicates">${count(rows.length - keys.size)}</dd></div>
-      <div><dt>ยอดรวมไม่ซ้ำในไฟล์ (บาท)</dt><dd>${money(total)}</dd></div></dl>
+      <div><dt>จำนวนชิ้นไม่ซ้ำในไฟล์</dt><dd>${count(units)}</dd></div>
+      <div><dt>ยอดรวมไม่ซ้ำในไฟล์ (บาท)</dt><dd>${previewMoney(total)}</dd></div></dl>
       <p class="sales-preview-note">ยอดนี้ยังไม่หักรายการที่เคยนำเข้า ระบบจะตรวจซ้ำอีกครั้งเมื่อยืนยัน</p>`;
   }
 
-  async function readFile(s, file) {
-    if (!file || !s.data || s.draft?.sending || !el("salesUploadDialog").open) return;
+  async function readFile(s, files) {
+    if (!files?.length || !s.data || s.draft?.sending || !el("salesUploadDialog").open) return;
+    const { length, 0: file } = files;
     clearDialog(s);
+    if (length !== 1) return feedback("กรุณาเลือกเพียง 1 ไฟล์", true);
     el("salesFileName").textContent = file.name;
     if (!/\.xlsx$/i.test(file.name)) return feedback("กรุณาเลือกไฟล์ Excel นามสกุล .xlsx", true);
-    if (!file.size || file.size > 8 * 1024 * 1024) return feedback("ไฟล์ต้องไม่ว่าง และมีขนาดไม่เกิน 8 MB", true);
-    const draft = s.draft = { filename: file.name, rows: null, worker: null, sending: false };
+    if (!uploadTextOk(file.name,180) || !/^[^\\/:*?"<>|]+\.xlsx$/i.test(file.name)) return feedback("ชื่อไฟล์ .xlsx ไม่ถูกต้องหรือยาวเกิน 180 ตัวอักษร", true);
+    if (!file.size || file.size > maxFileBytes) return feedback("ไฟล์ต้องไม่ว่าง และมีขนาดไม่เกิน 64 MiB", true);
+    const draft = s.draft = { filename: file.name, rows: null, worker: null, sending: false,
+      offset:0, added:0, skipped:0, month:"", addedMonth:"", uncertain:false, pause:false };
     const isCurrent = () => active(s) && s.draft === draft && el("salesUploadDialog").open;
     const fail = message => {
       if (!isCurrent()) return;
-      stopWorker(draft);
-      draft.rows = null;
+      dropDraft(s);
       el("salesConfirm").disabled = true;
       feedback(message, true);
     };
     feedback("กำลังอ่านไฟล์บนอุปกรณ์นี้…");
+    draft.timer = setTimeout(() => fail("อ่านหรือตรวจสอบไฟล์นานเกินไป กรุณาเลือกไฟล์ใหม่ ยังไม่ได้บันทึกยอดขาย"), previewTimeout);
     try {
       const buffer = await file.arrayBuffer();
       if (!isCurrent()) return;
       const worker = draft.worker = new Worker(workerUrl);
       worker.onerror = event => { event.preventDefault(); fail("เปิดไฟล์ไม่สำเร็จ ลองเลือกไฟล์ .xlsx อีกครั้ง"); };
       worker.onmessageerror = () => fail("อ่านผลจากไฟล์ไม่สำเร็จ กรุณาเลือกไฟล์ใหม่");
-      draft.timer = setTimeout(() => fail("อ่านไฟล์นานเกินไป กรุณาตรวจสอบไฟล์แล้วลองใหม่"), 60000);
-      worker.onmessage = ({ data }) => {
+      worker.onmessage = async ({ data }) => {
         if (!isCurrent()) return;
         stopWorker(draft);
         if (data?.ok !== true) return fail(typeof data?.error === "string" ? data.error : "อ่านไฟล์ Excel ไม่สำเร็จ");
         if (!Array.isArray(data.rows) || !data.rows.length) return fail("ไม่พบแถวข้อมูลยอดขายในไฟล์");
-        if (data.rows.length > 5000) return fail("ไฟล์มีข้อมูลเกิน 5,000 แถว กรุณาแบ่งไฟล์แล้วนำเข้าอีกครั้ง");
+        if (data.rows.length > maxFileRows) return fail("ไฟล์มีข้อมูลเกิน 100,000 แถว");
         try {
-          draft.rows = data.rows.map(r => cleanRow(r, true));
-          el("salesPreview").innerHTML = preview(draft.rows);
+          const markup = await preview(data.rows, isCurrent);
+          if (!isCurrent()) return;
+          clearTimeout(draft.timer);
+          draft.rows = data.rows;
+          el("salesPreview").innerHTML = markup;
           el("salesConfirm").disabled = false;
           feedback("อ่านไฟล์แล้ว ยังไม่ได้บันทึกยอดขาย");
         } catch (error) { fail(error.message); }
@@ -468,37 +505,66 @@
     const draft = s.draft;
     if (!draft?.rows?.length || draft.sending || !el("salesUploadDialog").open) return;
     draft.sending = true;
-    const request = draft.request = new AbortController();
-    const timeout = setTimeout(() => request.abort(), 60000);
-    el("salesConfirm").disabled = el("salesChoose").disabled = el("salesCancel").disabled = true;
-    el("salesConfirm").textContent = "กำลังบันทึก…";
-    feedback("กำลังบันทึกรายการใหม่และตรวจสอบรายการซ้ำ…");
-    try {
-      const result = await api(endpoint, { ...privateRequest, signal: request.signal, method: "POST",
-        body: JSON.stringify({ filename: draft.filename, rows: draft.rows }) });
-      if (!active(s) || s.draft !== draft) return;
-      if (result?.ok !== true || ![result.added,result.skipped,result.received].every(n => Number.isSafeInteger(n) && n >= 0) ||
-          result.received !== draft.rows.length || result.added + result.skipped !== result.received || !monthOk(result.month)) {
-        throw new Error("ไม่ได้รับผลยืนยันที่ครบถ้วน กรุณาลองนำเข้าอีกครั้ง ระบบจะข้ามรายการเดิม");
-      }
-      const notice = el("salesNotice");
-      notice.textContent = `เพิ่ม ${count(result.added)} แถว · ข้ามรายการซ้ำ ${count(result.skipped)} แถว จากทั้งหมด ${count(result.received)} แถว`;
-      notice.hidden = false;
-      draft.request = null;
-      clearDialog(s);
-      el("salesUploadDialog").close();
-      await load(s, result.month);
-      if (current === s && s.data && document.activeElement === document.body) el("salesUpload").focus();
-    } catch (error) {
-      if (denied(s, error) || !active(s) || s.draft !== draft) return;
+    draft.pause = false;
+    const valid = () => active(s) && s.draft === draft;
+    const total = draft.rows.length;
+    const progress = () => `${count(draft.offset)} / ${count(total)} แถว · เพิ่ม ${count(draft.added)} แถว · ข้ามรายการซ้ำ ${count(draft.skipped)} แถว`;
+    const resume = () => {
       draft.sending = false;
       draft.request = null;
       el("salesConfirm").disabled = el("salesChoose").disabled = el("salesCancel").disabled = false;
-      el("salesConfirm").innerHTML = icon("upload") + "ยืนยันนำเข้า";
-      feedback(error.status && error.status < 500 ? error.message :
-        "ยังยืนยันผลการนำเข้าไม่ได้ ลองอีกครั้งได้โดยไม่เพิ่มบรรทัดซ้ำ", true);
-    } finally {
-      clearTimeout(timeout);
+      el("salesCancel").textContent = "ปิด";
+      el("salesConfirm").textContent = "นำเข้าต่อ";
+    };
+    el("salesConfirm").disabled = el("salesChoose").disabled = true;
+    el("salesCancel").textContent = "หยุดหลังจบชุดนี้";
+    el("salesConfirm").textContent = "กำลังบันทึก…";
+    try {
+      while (draft.offset < total) {
+        if (!valid()) return;
+        feedback("บันทึกแล้ว " + progress());
+        // At most 500 validated rows; even fully JSON-escaped fields fit the 4 MiB API bound.
+        const batch = draft.rows.slice(draft.offset, draft.offset + 500);
+        const request = draft.request = new AbortController();
+        const timer = setTimeout(() => request.abort(), 60000);
+        let result;
+        try {
+          result = await api(endpoint, { ...privateRequest, signal: request.signal, method: "POST",
+            body: JSON.stringify({ filename: draft.filename, rows: batch }) });
+        } catch (error) {
+          if (request.signal.aborted) throw new Error("รอผลนานเกินไป");
+          throw error;
+        } finally { clearTimeout(timer); }
+        if (!valid()) return;
+        if (result?.ok !== true || ![result.added,result.skipped,result.received].every(n => Number.isSafeInteger(n) && n >= 0) ||
+            result.received !== batch.length || result.added + result.skipped !== result.received ||
+            !batch.some(r => r.date.slice(0,7) === result.month)) throw new Error("ไม่ได้รับผลยืนยันที่ครบถ้วน");
+        draft.offset += result.received;
+        draft.added += result.added;
+        draft.skipped += result.skipped;
+        if (result.month > draft.month) draft.month = result.month;
+        if (result.added && result.month > draft.addedMonth) draft.addedMonth = result.month;
+        if (draft.pause && draft.offset < total) {
+          resume();
+          feedback("พักการนำเข้า · บันทึกแล้ว " + progress());
+          return;
+        }
+      }
+      const notice = el("salesNotice");
+      notice.textContent = `เพิ่ม ${count(draft.added)} แถว · ข้ามรายการซ้ำ ${count(draft.skipped)} แถว จากทั้งหมด ${count(total)} แถว` +
+        (draft.uncertain ? " · รายการซ้ำอาจรวมชุดที่บันทึกสำเร็จก่อนการลองใหม่" : "");
+      notice.hidden = false;
+      const month = draft.addedMonth || draft.month;
+      draft.request = null;
+      clearDialog(s);
+      el("salesUploadDialog").close();
+      await load(s, month);
+      if (current === s && s.data && document.activeElement === document.body) el("salesUpload").focus();
+    } catch (error) {
+      if (denied(s, error) || !active(s) || s.draft !== draft) return;
+      resume();
+      if (!error.status || error.status >= 500) draft.uncertain = true;
+      feedback(`ยืนยันแล้ว ${progress()} · ${error.message} · ลองต่อที่แถว ${count(draft.offset+1)} ได้ ชุดล่าสุดอาจบันทึกแล้ว ระบบจะข้ามรายการซ้ำ`, true);
     }
   }
 
@@ -513,7 +579,7 @@
     if (!active(s)) return;
     const { id, value, files } = event.target;
     if (id === "salesMonth" && s.months.includes(value)) return load(s, value);
-    if (id === "salesFile") return readFile(s, files[0]);
+    if (id === "salesFile") return readFile(s, files);
     if (!s.filters) return;
     if (id === "salesDay") return selectDay(s, value);
     if (id === "salesBranch") return applyFilters(s, { branch: value });
@@ -536,7 +602,18 @@
     if (id === "salesRetry" || id === "salesReload") { if (!s.draft?.sending) load(s, s.month); return; }
     if (id === "salesUpload" || d.action === "upload") return openUpload(s);
     if (id === "salesChoose") return el("salesFile").click();
-    if (id === "salesCancel" && !s.draft?.sending) { clearDialog(s); el("salesUploadDialog").close(); return; }
+    if (id === "salesCancel") {
+      const d = s.draft;
+      if (d?.sending) { d.pause = true; button.disabled = true; button.textContent = "กำลังหยุด…"; return; }
+      const partial = d?.offset || d?.uncertain;
+      if (partial) {
+        el("salesNotice").textContent = `หยุดการนำเข้า · ยืนยันผลแล้ว ${count(d.offset)} / ${count(d.rows.length)} แถว เลือกไฟล์เดิมเพื่อนำเข้าต่อได้`;
+        el("salesNotice").hidden = false;
+      }
+      clearDialog(s); el("salesUploadDialog").close();
+      if (partial) void load(s,d.addedMonth || s.month);
+      return;
+    }
     if (id === "salesConfirm") return confirmUpload(s);
     if (!s.filters) return;
     if (id === "salesReset" || d.action === "reset") {
